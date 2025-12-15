@@ -1,0 +1,123 @@
+# Multi-stage Dockerfile otimizado para Laravel
+FROM rockylinux/rockylinux:8 AS base
+
+# Instalar dependências do sistema
+RUN dnf update -y && \
+    dnf install -y \
+    httpd \
+    php \
+    php-cli \
+    php-common \
+    php-json \
+    php-mbstring \
+    php-xml \
+    php-mysqlnd \
+    php-gd \
+    php-curl \
+    php-zip \
+    php-opcache \
+    php-intl \
+    php-bcmath \
+    php-soap \
+    php-xmlrpc \
+    php-pear \
+    php-devel \
+    gcc \
+    gcc-c++ \
+    make \
+    wget \
+    unzip \
+    git \
+    && dnf clean all
+
+# Configurar PHP
+RUN echo "memory_limit = 512M" >> /etc/php.ini && \
+    echo "upload_max_filesize = 100M" >> /etc/php.ini && \
+    echo "post_max_size = 100M" >> /etc/php.ini && \
+    echo "max_execution_time = 300" >> /etc/php.ini && \
+    echo "max_input_vars = 3000" >> /etc/php.ini
+
+# Configurar Apache
+RUN rm -f /etc/httpd/conf.d/welcome.conf /etc/httpd/conf.d/ssl.conf && \
+    echo "ServerName localhost" >> /etc/httpd/conf/httpd.conf
+
+# Stage de dependências
+FROM base AS dependencies
+
+# Instalar Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# Instalar Node.js
+RUN curl -fsSL https://rpm.nodesource.com/setup_18.x | bash - && \
+    dnf install -y nodejs && \
+    dnf clean all
+
+# Copiar arquivos de dependências
+COPY composer.json composer.lock ./
+COPY package.json package-lock.json ./
+
+# Instalar dependências PHP
+RUN composer install --no-scripts --no-autoloader --optimize-autoloader --no-dev
+
+# Instalar dependências Node.js
+RUN npm ci --only=production
+
+# Stage de build
+FROM dependencies AS build
+
+# Copiar código fonte
+COPY . .
+
+# Gerar autoloader otimizado
+RUN composer dump-autoload --optimize
+
+# Build de assets (se necessário)
+RUN npm run build --if-present
+
+# Stage final
+FROM base AS production
+
+# Copiar dependências e código compilado
+COPY --from=dependencies /var/www/html/vendor /var/www/html/vendor
+COPY --from=dependencies /var/www/html/node_modules /var/www/html/node_modules
+COPY --from=build /var/www/html /var/www/html
+
+# Copiar configuração do Apache
+COPY laravel.conf /etc/httpd/conf.d/laravel.conf
+
+# Criar diretórios necessários
+RUN mkdir -p /var/www/html/storage/framework/cache \
+    && mkdir -p /var/www/html/storage/framework/sessions \
+    && mkdir -p /var/www/html/storage/framework/views \
+    && mkdir -p /var/www/html/storage/logs \
+    && mkdir -p /var/www/html/bootstrap/cache
+
+# Configurar permissões
+RUN chown -R apache:apache /var/www/html && \
+    chmod -R 755 /var/www/html && \
+    chmod -R 775 /var/www/html/storage && \
+    chmod -R 775 /var/www/html/bootstrap/cache
+
+# Criar link simbólico para storage
+RUN php artisan storage:link
+
+# Configurar variáveis de ambiente
+ENV APP_ENV=production
+ENV APP_DEBUG=false
+ENV APP_KEY=
+ENV DB_CONNECTION=mysql
+ENV DB_HOST=localhost
+ENV DB_PORT=3306
+ENV DB_DATABASE=saas_automotivo
+ENV DB_USERNAME=root
+ENV DB_PASSWORD=
+
+# Expor porta
+EXPOSE 80
+
+# Script de inicialização
+COPY docker/start.sh /start.sh
+RUN chmod +x /start.sh
+
+# Comando de inicialização
+CMD ["/start.sh"]

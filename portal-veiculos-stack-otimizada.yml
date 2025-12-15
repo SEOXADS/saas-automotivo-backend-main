@@ -1,0 +1,220 @@
+version: '3.8'
+
+services:
+  # Backend Laravel com MinIO S3
+  portal-veiculos-backend:
+    image: deveseopara/porta-veiculos-backend:latest
+    environment:
+      TZ: America/Sao_Paulo
+      COMPOSER_ALLOW_SUPERUSER: '1'
+
+      # App Configuration
+      APP_NAME: 'Portal Veículos SaaS'
+      APP_ENV: 'production'
+      APP_DEBUG: 'false'
+      APP_KEY: 'base64:i63pfd8zvi7tSTRbfk+YclYb7Ag/tM0ULZkGZRu8XUk='
+      APP_URL: 'https://www.api.webcarros.app.br'
+      APP_LOCALE: 'pt'
+
+      # Database Configuration (Externo)
+      DB_CONNECTION: 'mysql'
+      DB_HOST: '142.44.222.134'
+      DB_PORT: 3306
+      DB_DATABASE: 'autocenter'
+      DB_USERNAME: 'autocenter'
+      DB_PASSWORD: 'hh8d2zq8rMR{Sz@P'
+
+      # Redis Configuration (Stack Redis)
+      CACHE_DRIVER: 'redis'
+      SESSION_DRIVER: 'redis'
+      QUEUE_CONNECTION: 'redis'
+      REDIS_HOST: 'redis'
+      REDIS_PASSWORD: 'SuaSenhaRedis2025!'
+      REDIS_PORT: 6379
+
+      # MinIO S3 Storage Configuration
+      FILESYSTEM_DISK: 's3'
+      AWS_ACCESS_KEY_ID: 'minioadmin'
+      AWS_SECRET_ACCESS_KEY: 'MinIO@SeuPassword2025!'
+      AWS_DEFAULT_REGION: 'us-east-1'
+      AWS_BUCKET: 'portal-veiculos-prod'
+      AWS_URL: 'https://s3.webcarros.app.br'
+      AWS_ENDPOINT: 'https://s3.webcarros.app.br'
+      AWS_USE_PATH_STYLE_ENDPOINT: 'true'
+
+      # JWT Configuration
+      JWT_SECRET: 'w4KfNt/6TamsKiJT3iWwwtI+sFfmzalemT0e+8uXCOQjOFIuVprDk2g2lBaWEjvXWVMGMgJXVWC6GSW8p6kW/w=='
+      JWT_TTL: 60
+
+      # Mail Configuration
+      MAIL_MAILER: 'log'
+      MAIL_FROM_ADDRESS: 'noreply@webcarros.app.br'
+      MAIL_FROM_NAME: 'Portal Veículos'
+
+      # Additional Laravel Config
+      LOG_CHANNEL: 'stack'
+      LOG_LEVEL: 'error'
+      BROADCAST_DRIVER: 'log'
+
+    restart: always
+    volumes:
+      # Apenas caches locais, storage vai para S3
+      - portal-veiculos-backend_cache:/var/www/html/bootstrap/cache
+
+    deploy:
+      # ✅ ESCALABILIDADE: 3 réplicas para Load Balancing
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == worker  # ✅ Aplicação no Worker
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      resources:
+        limits:
+          memory: 1GB
+          cpus: '0.8'
+        reservations:
+          memory: 256MB
+          cpus: '0.2'
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portal-veiculos-backend.rule=Host(`www.api.webcarros.app.br`)"
+        - "traefik.http.routers.portal-veiculos-backend.entrypoints=websecure"
+        - "traefik.http.services.portal-veiculos-backend.loadbalancer.server.port=80"
+        - "traefik.http.routers.portal-veiculos-backend.tls.certresolver=le"
+        # ✅ LOAD BALANCER: Health Check + Sticky Sessions
+        - "traefik.http.services.portal-veiculos-backend.loadbalancer.healthcheck.path=/health"
+        - "traefik.http.services.portal-veiculos-backend.loadbalancer.healthcheck.interval=30s"
+        - "traefik.http.services.portal-veiculos-backend.loadbalancer.sticky.cookie=true"
+        - "traefik.http.services.portal-veiculos-backend.loadbalancer.sticky.cookie.name=portal_session"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - traefik_public
+      - backend_internal
+
+  # Redis Cache & Sessions
+  redis:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+      --requirepass "SuaSenhaRedis2025!"
+
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager  # ✅ Redis no Manager para estabilidade
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+      resources:
+        limits:
+          memory: 1.5GB
+          cpus: '0.5'
+        reservations:
+          memory: 512MB
+          cpus: '0.1'
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "SuaSenhaRedis2025!", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+    networks:
+      - backend_internal
+
+  # Queue Worker
+  queue-worker:
+    image: deveseopara/porta-veiculos-backend:latest
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    environment:
+      # Mesmas variáveis do backend
+      TZ: America/Sao_Paulo
+      COMPOSER_ALLOW_SUPERUSER: '1'
+      APP_NAME: 'Portal Veículos SaaS'
+      APP_ENV: 'production'
+      APP_DEBUG: 'false'
+      APP_KEY: 'base64:i63pfd8zvi7tSTRbfk+YclYb7Ag/tM0ULZkGZRu8XUk='
+      APP_URL: 'https://www.api.webcarros.app.br'
+
+      # Database
+      DB_CONNECTION: 'mysql'
+      DB_HOST: '142.44.222.134'
+      DB_PORT: 3306
+      DB_DATABASE: 'autocenter'
+      DB_USERNAME: 'autocenter'
+      DB_PASSWORD: 'hh8d2zq8rMR{Sz@P'
+
+      # Redis
+      CACHE_DRIVER: 'redis'
+      SESSION_DRIVER: 'redis'
+      QUEUE_CONNECTION: 'redis'
+      REDIS_HOST: 'redis'
+      REDIS_PASSWORD: 'SuaSenhaRedis2025!'
+      REDIS_PORT: 6379
+
+      # MinIO S3
+      FILESYSTEM_DISK: 's3'
+      AWS_ACCESS_KEY_ID: 'minioadmin'
+      AWS_SECRET_ACCESS_KEY: 'MinIO@SeuPassword2025!'
+      AWS_DEFAULT_REGION: 'us-east-1'
+      AWS_BUCKET: 'portal-veiculos-prod'
+      AWS_URL: 'https://s3.webcarros.app.br'
+      AWS_ENDPOINT: 'https://s3.webcarros.app.br'
+      AWS_USE_PATH_STYLE_ENDPOINT: 'true'
+
+    deploy:
+      replicas: 2
+      placement:
+        constraints:
+          - node.role == worker
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+      resources:
+        limits:
+          memory: 512MB
+          cpus: '0.3'
+
+    depends_on:
+      - redis
+
+    networks:
+      - backend_internal
+
+volumes:
+  portal-veiculos-backend_cache:
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/redis/data
+
+networks:
+  traefik_public:
+    external: true
+  backend_internal:
+    driver: overlay
+    attachable: true

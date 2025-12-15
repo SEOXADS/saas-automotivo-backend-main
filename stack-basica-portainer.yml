@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # Backend Laravel - Stack Básica
+  portal-veiculos-backend:
+    image: deveseopara/porta-veiculos-backend:latest
+    environment:
+      TZ: America/Sao_Paulo
+      COMPOSER_ALLOW_SUPERUSER: '1'
+
+      # App Configuration
+      APP_NAME: 'Portal Veículos SaaS'
+      APP_ENV: 'production'
+      APP_DEBUG: 'false'
+      APP_KEY: 'base64:i63pfd8zvi7tSTRbfk+YclYb7Ag/tM0ULZkGZRu8XUk='
+      APP_URL: 'https://www.api.webcarros.app.br'
+      APP_LOCALE: 'pt'
+
+      # Database Configuration (Externo)
+      DB_CONNECTION: 'mysql'
+      DB_HOST: '142.44.222.134'
+      DB_PORT: 3306
+      DB_DATABASE: 'autocenter'
+      DB_USERNAME: 'autocenter'
+      DB_PASSWORD: 'hh8d2zq8rMR{Sz@P'
+
+      # Cache Configuration (usando arquivo - sem Redis)
+      CACHE_DRIVER: 'file'
+      SESSION_DRIVER: 'file'
+      QUEUE_CONNECTION: 'database'
+
+      # JWT Configuration
+      JWT_SECRET: 'w4KfNt/6TamsKiJT3iWwwtI+sFfmzalemT0e+8uXCOQjOFIuVprDk2g2lBaWEjvXWVMGMgJXVWC6GSW8p6kW/w=='
+      JWT_TTL: 60
+
+      # Mail Configuration
+      MAIL_MAILER: 'log'
+      MAIL_FROM_ADDRESS: 'noreply@webcarros.app.br'
+      MAIL_FROM_NAME: 'Portal Veículos'
+
+      # Storage Configuration (local por enquanto)
+      FILESYSTEM_DISK: 'local'
+
+      # Additional Laravel Config
+      LOG_CHANNEL: 'stack'
+      LOG_LEVEL: 'error'
+      BROADCAST_DRIVER: 'log'
+
+      # Swagger Configuration
+      L5_SWAGGER_BASE_PATH: 'https://www.api.webcarros.app.br'
+
+    restart: always
+    volumes:
+      - portal-veiculos-backend_storage:/var/www/html/storage
+      - portal-veiculos-backend_cache:/var/www/html/bootstrap/cache
+
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          memory: 1GB
+          cpus: '0.5'
+        reservations:
+          memory: 256MB
+          cpus: '0.1'
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portal-veiculos-backend.rule=Host(`www.api.webcarros.app.br`)"
+        - "traefik.http.routers.portal-veiculos-backend.entrypoints=websecure"
+        - "traefik.http.services.portal-veiculos-backend.loadbalancer.server.port=80"
+        - "traefik.http.routers.portal-veiculos-backend.tls.certresolver=le"
+        # CORS Headers para funcionar com front-end
+        - "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=GET,OPTIONS,PUT,POST,DELETE,PATCH"
+        - "traefik.http.middlewares.cors.headers.accesscontrolallowheaders=*"
+        - "traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=*"
+        - "traefik.http.middlewares.cors.headers.accesscontrolmaxage=100"
+        - "traefik.http.middlewares.cors.headers.addvaryheader=true"
+        - "traefik.http.routers.portal-veiculos-backend.middlewares=cors"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - traefik_public
+
+volumes:
+  portal-veiculos-backend_storage:
+  portal-veiculos-backend_cache:
+
+networks:
+  traefik_public:
+    external: true

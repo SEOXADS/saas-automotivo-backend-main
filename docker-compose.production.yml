@@ -1,0 +1,281 @@
+version: '3.8'
+
+services:
+  # Aplicação Laravel (Production)
+  app:
+    image: deveseopara/porta-veiculos-backend:latest
+    deploy:
+      replicas: ${APP_REPLICAS:-3}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        monitor: 60s
+        max_failure_ratio: 0.3
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+        failure_action: pause
+        monitor: 60s
+        max_failure_ratio: 0.3
+      resources:
+        limits:
+          cpus: '${APP_CPU_LIMIT:-1.0}'
+          memory: ${APP_MEMORY_LIMIT:-1GB}
+        reservations:
+          cpus: '0.25'
+          memory: 256MB
+      placement:
+        constraints:
+          - node.role == worker
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.portal-veiculos.rule=Host(`${LB_DOMAIN}`)"
+        - "traefik.http.routers.portal-veiculos.entrypoints=websecure"
+        - "traefik.http.routers.portal-veiculos.tls.certresolver=letsencrypt"
+        - "traefik.http.services.portal-veiculos.loadbalancer.server.port=80"
+        - "traefik.docker.network=${DOCKER_NETWORK_NAME}"
+    environment:
+      - APP_NAME=${APP_NAME}
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - APP_URL=https://${LB_DOMAIN}
+      - DB_CONNECTION=mysql
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_DATABASE=${DB_DATABASE}
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_PORT=6379
+      - MAIL_MAILER=${MAIL_MAILER}
+      - MAIL_HOST=${MAIL_HOST}
+      - MAIL_PORT=${MAIL_PORT}
+      - MAIL_USERNAME=${MAIL_USERNAME}
+      - MAIL_PASSWORD=${MAIL_PASSWORD}
+      - MAIL_ENCRYPTION=${MAIL_ENCRYPTION}
+      - MAIL_FROM_ADDRESS=${MAIL_FROM_ADDRESS}
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+      - ENVIRONMENT=${ENVIRONMENT}
+      - DEPLOY_TIMESTAMP=${DEPLOY_TIMESTAMP}
+      - GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+    volumes:
+      - app_storage:/var/www/html/storage
+      - app_cache:/var/www/html/bootstrap/cache
+    networks:
+      - portal-veiculos-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: ${HEALTH_CHECK_INTERVAL:-30s}
+      timeout: ${HEALTH_CHECK_TIMEOUT:-10s}
+      retries: ${HEALTH_CHECK_RETRIES:-3}
+
+  # MySQL Database (Production)
+  mysql:
+    image: mysql:8.0
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      resources:
+        limits:
+          cpus: '${MYSQL_CPU_LIMIT:-2.0}'
+          memory: ${MYSQL_MEMORY_LIMIT:-2GB}
+        reservations:
+          cpus: '0.5'
+          memory: 512MB
+      placement:
+        constraints:
+          - node.role == manager
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_USER: ${DB_USERNAME}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - mysql_config:/etc/mysql/conf.d
+    networks:
+      - portal-veiculos-network
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --innodb-buffer-pool-size=1GB
+      --innodb-log-file-size=256MB
+      --max-connections=200
+      --query-cache-size=128MB
+      --query-cache-type=1
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis Cache (Production)
+  redis:
+    image: redis:7-alpine
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      resources:
+        limits:
+          cpus: '${REDIS_CPU_LIMIT:-0.5}'
+          memory: ${REDIS_MEMORY_LIMIT:-512MB}
+        reservations:
+          cpus: '0.1'
+          memory: 64MB
+      placement:
+        constraints:
+          - node.role == worker
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 400mb
+      --maxmemory-policy allkeys-lru
+      --requirepass "${REDIS_PASSWORD}"
+    volumes:
+      - redis_data:/data
+    networks:
+      - portal-veiculos-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Traefik Load Balancer
+  traefik:
+    image: traefik:v2.10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.traefik.rule=Host(`traefik.${LB_DOMAIN}`)"
+        - "traefik.http.routers.traefik.entrypoints=websecure"
+        - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.traefik.service=api@internal"
+        - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.swarmmode=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${SSL_ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      - "--metrics.prometheus=true"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks:
+      - portal-veiculos-network
+
+  # Prometheus Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - prometheus_data:/prometheus
+    networks:
+      - portal-veiculos-network
+
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - portal-veiculos-network
+
+networks:
+  portal-veiculos-network:
+    external: true
+    name: ${DOCKER_NETWORK_NAME}
+
+volumes:
+  mysql_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/mysql
+  mysql_config:
+    driver: local
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/redis
+  app_storage:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/app/storage
+  app_cache:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/app/cache
+  traefik_letsencrypt:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
