@@ -28,6 +28,9 @@ return [
         'https://saas-automotivo-admin.vercel.app',
         'https://*.vercel.app',
         'https://*.vercel.app/*',
+        'https://*omegaveiculos.com.br',
+        'https://omegaveiculos.com.br',
+
     ],
 
     'allowed_origins_patterns' => [
