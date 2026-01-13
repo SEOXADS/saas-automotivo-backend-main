@@ -30,7 +30,6 @@ return [
         'https://*.vercel.app/*',
         'https://*omegaveiculos.com.br',
         'https://omegaveiculos.com.br',
-
     ],
 
     'allowed_origins_patterns' => [
@@ -45,6 +44,7 @@ return [
         'Accept',
         'Origin',
         'X-Tenant-Subdomain',
+        'X-Tenant', // ← ADD THIS LINE
         'X-CSRF-TOKEN',
         'X-XSRF-TOKEN',
         'Cache-Control',
@@ -54,6 +54,7 @@ return [
 
     'exposed_headers' => [
         'X-Tenant-Subdomain',
+        'X-Tenant', // ← ADD THIS TOO (optional, but recommended)
         'X-API-Version',
         'X-Request-ID',
     ],
