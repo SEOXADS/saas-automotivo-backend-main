@@ -354,34 +354,59 @@ class VehicleImageController extends Controller
             abort(404, 'Imagem não encontrada');
         }
     }*/
-    public function serveImage($tenantId, $vehicleId, $filename)
-    {
-        // Validate parameters
-        if (!is_numeric($tenantId) || !is_numeric($vehicleId)) {
-            abort(400, 'Invalid parameters');
-        }
-        
-        $path = storage_path("app/public/tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}");
-        
-        // Check if file exists
-        if (!Storage::exists("public/tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}")) {
-            abort(404, 'Image not found');
-        }
-        
-        // Check file permissions
-        if (!file_exists($path)) {
-            abort(404, 'File does not exist');
-        }
-        
-        // Get file mime type
-        $mime = mime_content_type($path);
-        
-        // Return the image with proper headers
-        return response()->file($path, [
-            'Content-Type' => $mime,
-            'Cache-Control' => 'public, max-age=31536000',
-        ]);
+
+
+public function serveImage($tenantId, $vehicleId, $filename)
+{
+    \Log::info('=== SERVE IMAGE CALLED ===', [
+        'tenantId' => $tenantId,
+        'vehicleId' => $vehicleId, 
+        'filename' => $filename
+    ]);
+    
+    // Validate parameters
+    if (!is_numeric($tenantId) || !is_numeric($vehicleId)) {
+        abort(400, 'Invalid parameters');
     }
+    
+    $path = storage_path("app/public/tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}");
+    
+    \Log::info('Checking file', [
+        'path' => $path,
+        'file_exists' => file_exists($path),
+        'is_readable' => is_readable($path)
+    ]);
+    
+    // Check if file exists directly (not using Storage facade)
+    if (!file_exists($path)) {
+        \Log::error('File does not exist', ['path' => $path]);
+        abort(404, 'Image not found');
+    }
+    
+    // Check if readable
+    if (!is_readable($path)) {
+        \Log::error('File not readable', ['path' => $path]);
+        abort(500, 'File is not readable');
+    }
+    
+    // Get file mime type
+    $mime = mime_content_type($path);
+    
+    \Log::info('Serving image', [
+        'path' => $path,
+        'mime' => $mime,
+        'filesize' => filesize($path)
+    ]);
+    
+    // Return the image with proper headers
+    return response()->file($path, [
+        'Content-Type' => $mime,
+        'Cache-Control' => 'public, max-age=31536000',
+        'Access-Control-Allow-Origin' => '*',
+    ]);
+}
+
+
 
     /**
      * Obter URL pública de uma imagem

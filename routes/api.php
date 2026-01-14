@@ -976,11 +976,33 @@ Route::prefix('custom-seo')->group(function () {
     Route::delete('/{id}', [CustomSEOController::class, 'destroy']);
 });
 
-// The route should have ->where('filename', '.*') to match dots
+Route::prefix('tenants/{tenant_id}')->group(function () {
+    Route::prefix('vehicles/{vehicle_id}')->group(function () {
+        Route::apiResource('images', VehicleImageController::class);
+    });
+});
+
+// Public image routes (keep as separate)
 Route::get('/public/images/{tenantId}/{vehicleId}/{filename}', [VehicleImageController::class, 'serveImage'])
     ->name('vehicle.image.serve')
-    ->where('filename', '.*');  // ← This is crucial!
-
-Route::get('/public/images/{tenantId}/{vehicleId}/{filename}/url', [VehicleImageController::class, 'getImageUrl'])
-    ->name('vehicle.image.url')
     ->where('filename', '.*');
+
+
+// Add this to api.php temporarily
+Route::get('/test-image/{tenantId}/{vehicleId}/{filename}', function($tenantId, $vehicleId, $filename) {
+    $path1 = storage_path("app/public/tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}");
+    $path2 = storage_path("app/public/vehicles/{$vehicleId}/{$filename}");
+
+    return response()->json([
+        'file_exists_at_tenant_path' => file_exists($path1),
+        'tenant_path' => $path1,
+        'file_exists_at_vehicle_path' => file_exists($path2),
+        'vehicle_path' => $path2,
+        'storage_path_exists' => [
+            'tenant' => Storage::exists("public/tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}"),
+            'vehicle' => Storage::exists("public/vehicles/{$vehicleId}/{$filename}"),
+        ]
+    ]);
+})->where('filename', '.*');
+
+
