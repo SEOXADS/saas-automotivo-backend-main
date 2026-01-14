@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\TenantSitemapController;
 use App\Http\Controllers\Api\TenantRobotsController;
 use App\Http\Controllers\Api\TenantSeoController;
 use App\Http\Controllers\Api\UserAuthController;
+use App\Http\Controllers\Api\CustomSEOController;
 
 /*
 |--------------------------------------------------------------------------
@@ -944,4 +945,19 @@ Route::middleware(['tenant.auto'])->prefix('tenant/sitemap')->group(function () 
 Route::middleware(['tenant.auto'])->prefix('tenant/robots-txt')->group(function () {
     // Apenas leitura de configuração
     Route::get('/', [TenantRobotsController::class, 'getConfig']);
+});
+
+Route::prefix('custom-seo')->group(function () {
+    // Specific routes FIRST
+    Route::get('get-by-url', [CustomSEOController::class, 'getByUrl']); 
+    
+    // General routes
+    Route::get('/', [CustomSEOController::class, 'index']);
+    Route::post('/', [CustomSEOController::class, 'store']);
+    Route::put('/', [CustomSEOController::class, 'store']);
+    
+    // Wildcard routes LAST
+    Route::get('/{url}', [CustomSEOController::class, 'show']); 
+    Route::put('/{id}', [CustomSEOController::class, 'update']); // Ensure update uses ID
+    Route::delete('/{id}', [CustomSEOController::class, 'destroy']);
 });

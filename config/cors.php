@@ -44,7 +44,7 @@ return [
         'Accept',
         'Origin',
         'X-Tenant-Subdomain',
-        'X-Tenant', // ← ADD THIS LINE
+        'X-Tenant',
         'X-CSRF-TOKEN',
         'X-XSRF-TOKEN',
         'Cache-Control',
@@ -54,7 +54,7 @@ return [
 
     'exposed_headers' => [
         'X-Tenant-Subdomain',
-        'X-Tenant', // ← ADD THIS TOO (optional, but recommended)
+        'X-Tenant',
         'X-API-Version',
         'X-Request-ID',
     ],
