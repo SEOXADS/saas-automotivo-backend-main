@@ -190,6 +190,9 @@ class TenantSitemapController extends Controller
                 'change_frequency' => $request->change_frequency,
                 'config_data' => $request->get('config_data', [])
             ]);
+    
+            $this->handleSitemapScheduling($config);
+
 
             return response()->json([
                 'success' => true,
@@ -207,6 +210,31 @@ class TenantSitemapController extends Controller
                 'success' => false,
                 'error' => 'Erro interno do servidor'
             ], 500);
+        }
+    }
+
+    /**
+     * Handles the immediate action after config creation.
+     */
+    protected function handleSitemapScheduling(TenantSitemapConfig $config)
+    {
+        try {
+            $request = new Request([
+                'type' => $config->type,
+                'force' => true
+            ]);
+            
+            // Inject the user/tenant context into the request
+            $request->setUserResolver(function () use ($config) {
+                $user = new \stdClass();
+                $user->tenant_id = $config->tenant_id;
+                return $user;
+            });
+
+            $this->generateSitemap($request);
+            
+        } catch (\Exception $e) {
+            Log::error('Failed to generate initial sitemap', ['error' => $e->getMessage()]);
         }
     }
 

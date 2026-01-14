@@ -934,11 +934,23 @@ Route::middleware(['tenant.auto'])->prefix('tenant/urls')->group(function () {
     Route::delete('redirects/{id}', [TenantUrlController::class, 'deleteRedirect']);
 });
 
-// Rotas de Sitemaps por Tenant (identificação automática do tenant) - APENAS LEITURA
+// Rotas de Sitemaps por Tenant
 Route::middleware(['tenant.auto'])->prefix('tenant/sitemap')->group(function () {
-    // Apenas leitura de configurações
+    // Listar e Ver (GET)
     Route::get('configs', [TenantSitemapController::class, 'getConfigs']);
     Route::get('configs/{id}', [TenantSitemapController::class, 'getConfig']);
+    
+    // Criar (POST) - This fixes your 405 error
+    Route::post('configs', [TenantSitemapController::class, 'createConfig']);
+    
+    // Atualizar (PUT)
+    Route::put('configs/{id}', [TenantSitemapController::class, 'updateConfig']);
+    
+    // Deletar (DELETE)
+    Route::delete('configs/{id}', [TenantSitemapController::class, 'deleteConfig']);
+
+    // Gerar Sitemap (POST) - Your controller also has this method
+    Route::post('generate', [TenantSitemapController::class, 'generateSitemap']);
 });
 
 // Rotas de Robots.txt por Tenant (identificação automática do tenant) - APENAS LEITURA
