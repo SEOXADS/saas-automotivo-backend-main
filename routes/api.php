@@ -975,3 +975,12 @@ Route::prefix('custom-seo')->group(function () {
     Route::put('/{id}', [CustomSEOController::class, 'update']); // Ensure update uses ID
     Route::delete('/{id}', [CustomSEOController::class, 'destroy']);
 });
+
+// The route should have ->where('filename', '.*') to match dots
+Route::get('/public/images/{tenantId}/{vehicleId}/{filename}', [VehicleImageController::class, 'serveImage'])
+    ->name('vehicle.image.serve')
+    ->where('filename', '.*');  // ← This is crucial!
+
+Route::get('/public/images/{tenantId}/{vehicleId}/{filename}/url', [VehicleImageController::class, 'getImageUrl'])
+    ->name('vehicle.image.url')
+    ->where('filename', '.*');
