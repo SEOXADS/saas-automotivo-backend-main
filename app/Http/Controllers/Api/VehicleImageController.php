@@ -110,7 +110,7 @@ class VehicleImageController extends Controller
 
             foreach ($files as $file) {
                 $filename = Str::random(40) . '.' . $file->getClientOriginalExtension();
-                $path = $file->storeAs('vehicles/' . $vehicleId, $filename, 'public');
+                    $path = $file->storeAs('vehicles/' . $vehicleId, $filename, 'public');
 
                 $image = VehicleImage::create([
                     'vehicle_id' => $vehicleId,
@@ -303,7 +303,7 @@ class VehicleImageController extends Controller
      *     @OA\Response(response=404, description="Imagem não encontrada")
      * )
      */
-    public function serveImage($tenantId, $vehicleId, $filename)
+    /*public function serveImage($tenantId, $vehicleId, $filename)
     {
         try {
             // Verificar se o tenant existe e está ativo
@@ -332,7 +332,8 @@ class VehicleImageController extends Controller
             }
 
             // Construir o caminho completo da imagem
-            $path = "tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}";
+            //$path = "tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}";
+            $path = "vehicles/{$vehicleId}/{$filename}";
 
             // Verificar se o arquivo existe no storage
             if (!Storage::disk('public')->exists($path)) {
@@ -352,6 +353,34 @@ class VehicleImageController extends Controller
         } catch (\Exception $e) {
             abort(404, 'Imagem não encontrada');
         }
+    }*/
+    public function serveImage($tenantId, $vehicleId, $filename)
+    {
+        // Validate parameters
+        if (!is_numeric($tenantId) || !is_numeric($vehicleId)) {
+            abort(400, 'Invalid parameters');
+        }
+        
+        $path = storage_path("app/public/tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}");
+        
+        // Check if file exists
+        if (!Storage::exists("public/tenants/{$tenantId}/vehicles/{$vehicleId}/{$filename}")) {
+            abort(404, 'Image not found');
+        }
+        
+        // Check file permissions
+        if (!file_exists($path)) {
+            abort(404, 'File does not exist');
+        }
+        
+        // Get file mime type
+        $mime = mime_content_type($path);
+        
+        // Return the image with proper headers
+        return response()->file($path, [
+            'Content-Type' => $mime,
+            'Cache-Control' => 'public, max-age=31536000',
+        ]);
     }
 
     /**
