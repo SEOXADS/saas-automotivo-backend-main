@@ -975,36 +975,3 @@ Route::prefix('custom-seo')->group(function () {
     Route::put('/{id}', [CustomSEOController::class, 'update']); // Ensure update uses ID
     Route::delete('/{id}', [CustomSEOController::class, 'destroy']);
 });
-
-
-Route::get('/public/images/{tenant_id}/{vehicle_id}/{filename}', function ($tenant_id, $vehicle_id, $filename) {
-    // Try multiple possible storage paths
-    $possiblePaths = [
-        "vehicles/{$tenant_id}/{$vehicle_id}/{$filename}",
-        "tenants/{$tenant_id}/vehicles/{$vehicle_id}/{$filename}",
-        "{$tenant_id}/{$vehicle_id}/{$filename}",
-        "public/vehicles/{$tenant_id}/{$vehicle_id}/{$filename}",
-    ];
-
-    foreach ($possiblePaths as $path) {
-        if (Storage::disk('public')->exists($path)) {
-            $file = Storage::disk('public')->get($path);
-            $mimeType = Storage::disk('public')->mimeType($path);
-            
-            return response($file, 200)
-                ->header('Content-Type', $mimeType)
-                ->header('Cache-Control', 'public, max-age=31536000');
-        }
-    }
-
-    // Log for debugging
-    Log::warning("Image not found", [
-        'tenant_id' => $tenant_id,
-        'vehicle_id' => $vehicle_id,
-        'filename' => $filename,
-        'tried_paths' => $possiblePaths
-    ]);
-
-    // Return 404 with placeholder or error
-    abort(404, 'Image not found');
-})->where('filename', '.*');
