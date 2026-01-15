@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 
+use function Illuminate\Log\log;
+
 /**
  * @OA\Tag(
  *     name="Super Admin - Robots.txt",
@@ -762,7 +764,7 @@ public function getPreview(Request $request): JsonResponse
 {
     try {
         $tenant = $request->attributes->get('current_tenant');
-        
+        Log::info(" $request" . $request);
         if (!$tenant) {
             return response()->json([
                 'success' => false,
@@ -772,11 +774,15 @@ public function getPreview(Request $request): JsonResponse
         }
 
         $filePath = storage_path("app/robots/{$tenant->subdomain}/robots.txt");
-
+        Log::info("Filepath: " . $filePath);
+        
         if (file_exists($filePath)) {
             $content = file_get_contents($filePath);
+            Log::info("content: " . $content);
+
         } else {
             // Default content if file doesn't exist
+            Log::info("DEFAULT CALLED");
             $sitemapUrl = $tenant->custom_domain 
                 ? rtrim($tenant->custom_domain, '/') . '/sitemap.xml'
                 : "https://{$tenant->subdomain}.omegaveiculos.com.br/sitemap.xml";
