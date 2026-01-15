@@ -719,4 +719,162 @@ class TenantRobotsController extends Controller
             throw $e;
         }
     }
+/**
+ * Get robots.txt config for the current tenant
+ */
+public function getTenantConfig(Request $request): JsonResponse
+{
+    try {
+        $tenant = $request->attributes->get('current_tenant');
+        
+        if (!$tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant não identificado'
+            ], 404);
+        }
+
+        $config = TenantRobotsConfig::where('tenant_id', $tenant->id)
+            ->where('is_active', true)
+            ->first();
+
+        return response()->json([
+            'success' => true,
+            'data' => $config
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Erro ao obter configuração de robots do tenant', [
+            'error' => $e->getMessage()
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Erro interno do servidor'
+        ], 500);
+    }
+}
+
+/**
+ * Get preview/current content of robots.txt for the tenant
+ */
+public function getPreview(Request $request): JsonResponse
+{
+    try {
+        $tenant = $request->attributes->get('current_tenant');
+        
+        if (!$tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant não identificado',
+                'content' => ''
+            ], 404);
+        }
+
+        $filePath = storage_path("app/robots/{$tenant->subdomain}/robots.txt");
+
+        if (file_exists($filePath)) {
+            $content = file_get_contents($filePath);
+        } else {
+            // Default content if file doesn't exist
+            $sitemapUrl = $tenant->custom_domain 
+                ? rtrim($tenant->custom_domain, '/') . '/sitemap.xml'
+                : "https://{$tenant->subdomain}.omegaveiculos.com.br/sitemap.xml";
+                
+            $content = "User-agent: *\n";
+            $content .= "Allow: /\n";
+            $content .= "Disallow: /admin/\n";
+            $content .= "Disallow: /api/\n";
+            $content .= "Disallow: /_next/\n";
+            $content .= "\n";
+            $content .= "Sitemap: {$sitemapUrl}";
+        }
+
+        return response()->json([
+            'success' => true,
+            'content' => $content
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Erro ao obter preview do robots.txt', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Erro interno do servidor',
+            'content' => ''
+        ], 500);
+    }
+}
+
+/**
+ * Save raw robots.txt content for the tenant
+ */
+public function saveContent(Request $request): JsonResponse
+{
+    $validator = Validator::make($request->all(), [
+        'content' => 'required|string'
+    ]);
+
+    if ($validator->fails()) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Conteúdo inválido',
+            'errors' => $validator->errors()
+        ], 422);
+    }
+
+    try {
+        $tenant = $request->attributes->get('current_tenant');
+        
+        if (!$tenant) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant não identificado'
+            ], 404);
+        }
+
+        // Create tenant directory if it doesn't exist
+        $tenantDir = storage_path("app/robots/{$tenant->subdomain}");
+
+        if (!file_exists($tenantDir)) {
+            mkdir($tenantDir, 0755, true);
+        }
+
+        $filePath = "{$tenantDir}/robots.txt";
+        
+        // Save the content
+        file_put_contents($filePath, $request->content);
+
+        Log::info('Robots.txt salvo com sucesso', [
+            'tenant' => $tenant->subdomain,
+            'tenant_id' => $tenant->id,
+            'filepath' => $filePath,
+            'content_length' => strlen($request->content),
+            'user_id' => $request->attributes->get('current_user')?->id ?? 'unknown'
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Robots.txt salvo com sucesso',
+            'file_path' => $filePath
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('Erro ao salvar robots.txt', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Erro interno do servidor: ' . $e->getMessage()
+        ], 500);
+    }
+}
+
+
+
 }

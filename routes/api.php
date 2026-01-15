@@ -955,11 +955,19 @@ Route::middleware(['tenant.auto'])->prefix('tenant/sitemap')->group(function () 
     Route::post('generate', [TenantSitemapController::class, 'generateSitemap']);
 });
 
-// Rotas de Robots.txt por Tenant (identificação automática do tenant) - APENAS LEITURA
+// Rotas de Robots.txt por Tenant (identificação automática do tenant)
 Route::middleware(['tenant.auto'])->prefix('tenant/robots-txt')->group(function () {
-    // Apenas leitura de configuração
-    Route::get('/', [TenantRobotsController::class, 'getConfig']);
+    // Get current config (for tenant)
+    Route::get('/', [TenantRobotsController::class, 'getTenantConfig']);
+    
+    // Get preview/content of robots.txt
+    Route::get('/preview', [TenantRobotsController::class, 'getPreview']);
+    
+    // Save raw robots.txt content
+    Route::post('/save', [TenantRobotsController::class, 'saveContent']);
 });
+
+
 
 Route::prefix('custom-seo')->group(function () {
     // Specific routes FIRST
