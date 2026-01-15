@@ -91,7 +91,7 @@ class TenantAutoIdentificationMiddleware
     /**
      * Identifica tenant por subdomínio ou custom_domain
      */
-    private function identifyTenant(Request $request): ?Tenant
+/*    private function identifyTenant(Request $request): ?Tenant
     {
         // 1. Tentar identificar por subdomínio
         $tenant = $this->identifyBySubdomain($request);
@@ -107,7 +107,177 @@ class TenantAutoIdentificationMiddleware
         }
 
         return $tenant;
+    }*/
+
+private function identifyTenant(Request $request): ?Tenant
+{
+    // 1. FIRST - Try to get tenant from authenticated user's token
+    $tenant = $this->identifyByAuthenticatedUser($request);
+    
+    // 2. If not found, try by subdomain
+    if (!$tenant) {
+        $tenant = $this->identifyBySubdomain($request);
     }
+
+    // 3. If not found, try by custom domain
+    if (!$tenant) {
+        $tenant = $this->identifyByCustomDomain($request);
+    }
+
+    // 4. If not found, try by header
+    if (!$tenant) {
+        $tenant = $this->identifyByHeader($request);
+    }
+    
+    // 5. NEW - Try by Origin/Referer header
+    if (!$tenant) {
+        $tenant = $this->identifyByOrigin($request);
+    }
+
+    return $tenant;
+}
+
+/**
+ * NEW: Identifica tenant pelo usuário autenticado via token
+ */
+private function identifyByAuthenticatedUser(Request $request): ?Tenant
+{
+    $token = $request->bearerToken();
+    
+    if (!$token) {
+        return null;
+    }
+    
+    try {
+        $user = TokenHelper::getAuthenticatedUser($request);
+        
+        if ($user && isset($user->tenant_id) && $user->tenant_id) {
+            $tenant = Cache::remember("tenant_user_{$user->tenant_id}", 300, function () use ($user) {
+                return Tenant::where('id', $user->tenant_id)
+                    ->where('status', 'active')
+                    ->first();
+            });
+            
+            if ($tenant) {
+                Log::info('Tenant identificado via token do usuário', [
+                    'tenant_id' => $tenant->id,
+                    'user_id' => $user->id,
+                    'user_tenant_id' => $user->tenant_id
+                ]);
+                return $tenant;
+            }
+        }
+    } catch (\Exception $e) {
+        Log::debug('Não foi possível identificar tenant via token', [
+            'error' => $e->getMessage()
+        ]);
+    }
+    
+    return null;
+}
+
+/**
+ * NEW: Identifica tenant pela Origin ou Referer header
+ */
+private function identifyByOrigin(Request $request): ?Tenant
+{
+    $origin = $request->header('Origin') ?? $request->header('Referer');
+    
+    if (!$origin) {
+        return null;
+    }
+    
+    try {
+        $parsedUrl = parse_url($origin);
+        $host = $parsedUrl['host'] ?? null;
+        
+        if (!$host) {
+            return null;
+        }
+        
+        // Normalize host (remove www if present)
+        $normalizedHost = $this->normalizeDomain($host);
+        
+        // Extract subdomain from origin host
+        $parts = explode('.', $normalizedHost);
+        
+        // Check if first part is a potential subdomain (e.g., "admin" from admin.omegaveiculos.com.br)
+        if (count($parts) >= 3) {
+            $potentialSubdomain = $parts[0];
+            
+            // Skip common non-tenant subdomains
+            if (!in_array($potentialSubdomain, ['www', 'api', 'mail', 'ftp', 'admin'])) {
+                $tenant = Cache::remember("tenant_origin_subdomain_{$potentialSubdomain}", 300, function () use ($potentialSubdomain) {
+                    return Tenant::where('subdomain', $potentialSubdomain)
+                        ->where('status', 'active')
+                        ->first();
+                });
+                
+                if ($tenant) {
+                    Log::info('Tenant identificado via subdomain da Origin', [
+                        'origin' => $origin,
+                        'subdomain' => $potentialSubdomain,
+                        'tenant_id' => $tenant->id
+                    ]);
+                    return $tenant;
+                }
+            }
+        }
+        
+        // Try to find by base domain (e.g., omegaveiculos.com.br)
+        // Build base domain from parts (last 3 parts for .com.br domains, last 2 for others)
+        $baseDomain = $normalizedHost;
+        if (count($parts) >= 3) {
+            // For domains like admin.omegaveiculos.com.br -> omegaveiculos.com.br
+            $baseDomain = implode('.', array_slice($parts, -3));
+        }
+        
+        $tenant = Cache::remember("tenant_origin_domain_{$baseDomain}", 300, function () use ($baseDomain, $normalizedHost) {
+            // Try exact match first
+            $tenant = Tenant::where('custom_domain', 'LIKE', '%' . $baseDomain . '%')
+                ->where('status', 'active')
+                ->first();
+            
+            // If not found, try with the full normalized host
+            if (!$tenant) {
+                $tenant = Tenant::where('custom_domain', 'LIKE', '%' . $normalizedHost . '%')
+                    ->where('status', 'active')
+                    ->first();
+            }
+            
+            // Also try finding by subdomain extracted from domain
+            if (!$tenant) {
+                $parts = explode('.', $baseDomain);
+                if (count($parts) >= 3) {
+                    $possibleSubdomain = $parts[0];
+                    $tenant = Tenant::where('subdomain', $possibleSubdomain)
+                        ->where('status', 'active')
+                        ->first();
+                }
+            }
+            
+            return $tenant;
+        });
+        
+        if ($tenant) {
+            Log::info('Tenant identificado via custom_domain da Origin', [
+                'origin' => $origin,
+                'base_domain' => $baseDomain,
+                'tenant_id' => $tenant->id
+            ]);
+            return $tenant;
+        }
+        
+    } catch (\Exception $e) {
+        Log::debug('Erro ao identificar tenant via Origin', [
+            'origin' => $origin,
+            'error' => $e->getMessage()
+        ]);
+    }
+    
+    return null;
+}
+
 
     /**
      * Identifica tenant por subdomínio

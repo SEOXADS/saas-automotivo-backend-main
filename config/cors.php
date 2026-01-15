@@ -30,11 +30,15 @@ return [
         'https://*.vercel.app/*',
         'https://*omegaveiculos.com.br',
         'https://omegaveiculos.com.br',
+        'https://www.omegaveiculos.com.br',      // ← MISSING!
+        'https://admin.omegaveiculos.com.br',    // ← MISSING!
+        'https://test.omegaveiculos.com.br',     // ← MISSING!
     ],
 
     'allowed_origins_patterns' => [
         '/^https:\/\/.*\.vercel\.app$/',
         '/^https:\/\/.*\.vercel\.app\/.*$/',
+        '/^https:\/\/.*\.omegaveiculos\.com\.br$/',  // ← ADD THIS
     ],
 
     'allowed_headers' => [
