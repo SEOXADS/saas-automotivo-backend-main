@@ -12,21 +12,12 @@ class TenantImageController extends Controller
 {
     public function upload(Request $request)
     {
-        // ✅ Add logging at the very start to debug 500 error
         Log::info('🖼️ TenantImageController::upload - START', [
             'method' => $request->method(),
             'url' => $request->fullUrl(),
         ]);
 
         try {
-            Log::info('Image upload request received', [
-                'type' => $request->input('type'),
-                'has_image' => $request->hasFile('image'),
-                'all_files' => array_keys($request->allFiles()),
-                'content_type' => $request->header('Content-Type'),
-            ]);
-
-            // ✅ Check if file exists before validation
             if (!$request->hasFile('image')) {
                 Log::error('No image file in request');
                 return response()->json([
@@ -43,9 +34,8 @@ class TenantImageController extends Controller
             $file = $request->file('image');
             $type = $request->input('type');
             
-            // ✅ FIX: Use Auth facade instead of auth() helper
+            // Get tenant ID
             $tenantId = 'default';
-            
             if (Auth::check() && Auth::user()) {
                 $user = Auth::user();
                 $tenantId = $user->tenant_id ?? 'default';
@@ -60,28 +50,32 @@ class TenantImageController extends Controller
             // Create unique filename
             $filename = $type . '_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
             
-            // ✅ Ensure storage directory exists
-            $directory = "tenants/{$tenantId}/images";
-            
             // Store in tenant-specific folder
+            $directory = "tenants/{$tenantId}/images";
             $path = $file->storeAs($directory, $filename, 'public');
 
             if (!$path) {
                 throw new \Exception('Failed to store file');
             }
 
-            $url = asset('storage/' . $path);
+            // ✅ FIX: Generate URL based on environment
+            // Use APP_URL from .env to ensure correct domain
+            $appUrl = config('app.url', 'http://localhost:8000');
+            $url = rtrim($appUrl, '/') . '/storage/' . $path;
 
             Log::info('✅ Image uploaded successfully', [
                 'path' => $path,
-                'url' => $url
+                'url' => $url,
+                'app_url' => $appUrl
             ]);
 
             return response()->json([
                 'success' => true,
                 'url' => $url,
                 'image_url' => $url,
-                'path' => $path
+                'path' => $path,
+                // ✅ Also return relative path for flexibility
+                'relative_path' => '/storage/' . $path
             ]);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
