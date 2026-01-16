@@ -47,6 +47,8 @@ use App\Http\Controllers\Api\TenantRobotsController;
 use App\Http\Controllers\Api\TenantSeoController;
 use App\Http\Controllers\Api\UserAuthController;
 use App\Http\Controllers\Api\CustomSEOController;
+use App\Http\Controllers\Api\TenantImageController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -983,6 +985,28 @@ Route::prefix('custom-seo')->group(function () {
     Route::put('/{id}', [CustomSEOController::class, 'update']); // Ensure update uses ID
     Route::delete('/{id}', [CustomSEOController::class, 'destroy']);
 });
+
+// ✅ Image upload - Allow both authenticated and custom token auth
+Route::prefix('tenant')->group(function () {
+    // This route should accept the auth token from header
+    Route::post('upload-image', [TenantImageController::class, 'upload'])
+        ->middleware('auth:sanctum');
+});
+
+// ✅ Image upload - Remove auth middleware temporarily for debugging
+Route::post('tenant/upload-image', [TenantImageController::class, 'upload']);
+
+// Custom SEO routes
+Route::prefix('custom-seo')->group(function () {
+    Route::get('get-by-url', [CustomSEOController::class, 'getByUrl']); 
+    Route::get('/', [CustomSEOController::class, 'index']);
+    Route::post('/', [CustomSEOController::class, 'store']);
+    Route::put('/', [CustomSEOController::class, 'store']);
+    Route::get('/{url}', [CustomSEOController::class, 'show']); 
+    Route::put('/{id}', [CustomSEOController::class, 'update']);
+    Route::delete('/{id}', [CustomSEOController::class, 'destroy']);
+});
+
 
 Route::prefix('tenants/{tenant_id}')->group(function () {
     Route::prefix('vehicles/{vehicle_id}')->group(function () {

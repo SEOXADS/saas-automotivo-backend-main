@@ -1,0 +1,25 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('custom_seo_entries', function (Blueprint $table) {
+            // Change image URL columns to TEXT to support longer URLs or base64 fallback
+            $table->text('og_image_url')->nullable()->change();
+            $table->text('twitter_image_url')->nullable()->change();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('custom_seo_entries', function (Blueprint $table) {
+            $table->string('og_image_url', 500)->nullable()->change();
+            $table->string('twitter_image_url', 500)->nullable()->change();
+        });
+    }
+};

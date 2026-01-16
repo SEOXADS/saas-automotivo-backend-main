@@ -4,6 +4,9 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Support\Facades\Log;
 
 class TenantLocationRequest extends FormRequest
 {
@@ -22,6 +25,13 @@ class TenantLocationRequest extends FormRequest
      */
     public function rules(): array
     {
+        // 👇 Add this logging BEFORE the switch
+        Log::info('TenantLocationRequest - Validation starting:', [
+            'action_method' => $this->route()->getActionMethod(),
+            'all_input' => $this->all(),
+            'user_tenant_id' => $this->user()?->tenant_id,
+        ]);
+
         $rules = [];
 
         switch ($this->route()->getActionMethod()) {
@@ -65,7 +75,14 @@ class TenantLocationRequest extends FormRequest
                     ],
                     'is_active' => 'boolean'
                 ];
+                // 👇 Add this to check if city exists
+                Log::info('addCity validation - Checking city:', [
+                    'city_id_from_request' => $this->city_id,
+                    'tenant_id' => $this->user()?->tenant_id,
+                ]);
                 break;
+                
+
 
             case 'addNeighborhood':
                 $rules = [
@@ -91,7 +108,26 @@ class TenantLocationRequest extends FormRequest
                 break;
         }
 
-        return $rules;
+        return $rules;        
+    }
+
+        // 👇 ADD THIS METHOD to see exactly which validation fails
+    protected function failedValidation(Validator $validator)
+    {
+        Log::error('TenantLocationRequest - VALIDATION FAILED:', [
+            'errors' => $validator->errors()->toArray(),
+            'input_data' => $this->all(),
+            'action_method' => $this->route()->getActionMethod(),
+            'user_tenant_id' => $this->user()?->tenant_id,
+        ]);
+
+        throw new HttpResponseException(
+            response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422)
+        );
     }
 
     /**

@@ -48,20 +48,19 @@ class CustomSEOController extends Controller
                 'meta_robots' => 'nullable|string|max:50',
                 'og_title' => 'nullable|string|max:255',
                 'og_description' => 'nullable|string',
-                'og_image_url' => 'nullable|string|max:500',
+                'og_image_url' => 'nullable|string',  // ✅ Removed max:500
                 'og_site_name' => 'nullable|string|max:255',
                 'og_type' => 'nullable|string|max:50',
                 'og_locale' => 'nullable|string|max:10',
                 'twitter_card' => 'nullable|string|max:50',
                 'twitter_title' => 'nullable|string|max:255',
                 'twitter_description' => 'nullable|string',
-                'twitter_image_url' => 'nullable|string|max:500',
+                'twitter_image_url' => 'nullable|string',  // ✅ Removed max:500
                 'twitter_site' => 'nullable|string|max:100',
                 'twitter_creator' => 'nullable|string|max:100',
                 'canonical_url' => 'nullable|string|max:500',
                 'structured_data' => 'nullable|array',
             ]);
-
             // Check if entry already exists
             $existing = CustomSeoEntry::where('tenant_id', $validated['tenant_id'])
                 ->where('page_url', $validated['page_url'])
@@ -101,11 +100,20 @@ class CustomSEOController extends Controller
 
     public function update(Request $request, $id)
     {
+        // ✅ Add logging at the start
+        Log::info('CustomSEO Update Request', [
+            'id' => $id,
+            'data' => $request->all()
+        ]);
+
         try {
             $entry = CustomSeoEntry::findOrFail($id);
+            
+            // In store() method
             $validated = $request->validate([
-                'page_url' => 'sometimes|string|max:255',
-                'page_title' => 'sometimes|string|max:255',
+                'tenant_id' => 'required|integer|exists:tenants,id',
+                'page_url' => 'required|string|max:255',
+                'page_title' => 'required|string|max:255',
                 'subtitle' => 'nullable|string|max:255',
                 'meta_description' => 'nullable|string',
                 'meta_keywords' => 'nullable|string',
@@ -113,24 +121,67 @@ class CustomSEOController extends Controller
                 'meta_robots' => 'nullable|string|max:50',
                 'og_title' => 'nullable|string|max:255',
                 'og_description' => 'nullable|string',
-                'og_image_url' => 'nullable|string|max:500',
+                'og_image_url' => 'nullable|string',  // ✅ Removed max:500
                 'og_site_name' => 'nullable|string|max:255',
                 'og_type' => 'nullable|string|max:50',
                 'og_locale' => 'nullable|string|max:10',
                 'twitter_card' => 'nullable|string|max:50',
                 'twitter_title' => 'nullable|string|max:255',
                 'twitter_description' => 'nullable|string',
-                'twitter_image_url' => 'nullable|string|max:500',
+                'twitter_image_url' => 'nullable|string',  // ✅ Removed max:500
                 'twitter_site' => 'nullable|string|max:100',
                 'twitter_creator' => 'nullable|string|max:100',
                 'canonical_url' => 'nullable|string|max:500',
                 'structured_data' => 'nullable|array',
             ]);
 
+            Log::info('Validated data:', $validated);
+
             $entry->update($validated);
+            
+            Log::info('CustomSEO updated successfully', ['id' => $id]);
+            
             return response()->json(['success' => true, 'data' => $entry->fresh()]);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // ✅ Handle validation errors separately
+            Log::warning('CustomSEO Validation Error', [
+                'id' => $id,
+                'errors' => $e->errors()
+            ]);
+            return response()->json([
+                'success' => false, 
+                'error' => 'Erro de validação',
+                'errors' => $e->errors()
+            ], 422);
+            
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            // ✅ Handle not found
+            Log::warning('CustomSEO not found', ['id' => $id]);
+            return response()->json([
+                'success' => false, 
+                'error' => 'Registro não encontrado'
+            ], 404);
+            
         } catch (\Exception $e) {
-            return response()->json(['success' => false, 'error' => 'Erro ao atualizar'], 500);
+            // ✅ LOG THE ACTUAL ERROR!
+            Log::error('CustomSEO Update Error', [
+                'id' => $id,
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            // In development, return the actual error
+            $errorMessage = config('app.debug') 
+                ? $e->getMessage() 
+                : 'Erro ao atualizar';
+                
+            return response()->json([
+                'success' => false, 
+                'error' => $errorMessage
+            ], 500);
         }
     }
 

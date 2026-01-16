@@ -902,8 +902,62 @@ class TenantLocationController extends Controller
     public function addCity(TenantLocationRequest $request): JsonResponse
     {
         try {
+            // Log the incoming request data
+            Log::info('addCity - Incoming request data:', [
+                'all_request_data' => $request->all(),
+                'city_id' => $request->city_id,
+                'is_active' => $request->get('is_active', 'not provided (default: true)'),
+                'request_method' => $request->method(),
+                'request_url' => $request->fullUrl(),
+                'request_headers' => $request->headers->all(),
+                'user_agent' => $request->userAgent(),
+                'client_ip' => $request->ip()
+            ]);
+
+            // Log validation rules (if you want to see what's being validated)
+            Log::info('addCity - Validation rules applied:', [
+                'validation_rules' => $request->rules() // Assumes TenantLocationRequest has rules() method
+            ]);
+
             $tenant = $this->getCurrentTenant($request);
             $tenantId = $tenant->id;
+
+            // Log tenant information
+            Log::info('addCity - Tenant information:', [
+                'tenant_id' => $tenantId,
+                'tenant_name' => $tenant->name ?? 'N/A',
+                'tenant_subdomain' => $tenant->subdomain ?? 'N/A'
+            ]);
+
+            // Check if the city exists before creating
+            Log::info('addCity - Checking if city exists:', [
+                'city_id_to_check' => $request->city_id
+            ]);
+
+            $cityExists = City::find($request->city_id);
+            Log::info('addCity - City existence check result:', [
+                'city_exists' => !is_null($cityExists),
+                'city_found' => $cityExists ? [
+                    'id' => $cityExists->id,
+                    'name' => $cityExists->name,
+                    'state_id' => $cityExists->state_id
+                ] : null
+            ]);
+
+            // Check if this city is already associated with the tenant
+            $existingTenantCity = TenantCity::where('tenant_id', $tenantId)
+                ->where('city_id', $request->city_id)
+                ->first();
+            
+            if ($existingTenantCity) {
+                Log::warning('addCity - City already associated with tenant:', [
+                    'tenant_id' => $tenantId,
+                    'city_id' => $request->city_id,
+                    'existing_association_id' => $existingTenantCity->id
+                ]);
+            } else {
+                Log::info('addCity - Creating new tenant-city association');
+            }
 
             $tenantCity = TenantCity::create([
                 'tenant_id' => $tenantId,
@@ -911,7 +965,26 @@ class TenantLocationController extends Controller
                 'is_active' => $request->get('is_active', true)
             ]);
 
+            // Log successful creation
+            Log::info('addCity - TenantCity created successfully:', [
+                'tenant_city_id' => $tenantCity->id,
+                'tenant_id' => $tenantCity->tenant_id,
+                'city_id' => $tenantCity->city_id,
+                'is_active' => $tenantCity->is_active,
+                'created_at' => $tenantCity->created_at
+            ]);
+
             $city = City::with(['state', 'country'])->find($request->city_id);
+
+            // Log the full city data retrieved
+            Log::info('addCity - Full city data retrieved:', [
+                'city_id' => $city->id ?? null,
+                'city_name' => $city->name ?? 'N/A',
+                'state_name' => $city->state->name ?? 'N/A',
+                'country_name' => $city->country->name ?? 'N/A',
+                'has_state' => isset($city->state),
+                'has_country' => isset($city->country)
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -925,19 +998,30 @@ class TenantLocationController extends Controller
             ], 201);
 
         } catch (\Exception $e) {
+            // Enhanced error logging
             Log::error('Erro ao adicionar cidade ao tenant', [
-                'error' => $e->getMessage(),
-                'tenant_id' => $tenant->id ?? null,
-                'city_id' => $request->city_id ?? null
+                'error_message' => $e->getMessage(),
+                'error_code' => $e->getCode(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'error_trace' => $e->getTraceAsString(),
+                'tenant_id' => $tenant->id ?? 'not retrieved',
+                'city_id' => $request->city_id ?? 'not provided',
+                'request_data' => $request->all(),
+                'timestamp' => now()->toDateTimeString()
             ]);
 
             return response()->json([
                 'success' => false,
-                'error' => 'Erro interno do servidor'
+                'error' => 'Erro interno do servidor',
+                'debug_info' => config('app.debug') ? [
+                    'message' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine()
+                ] : null
             ], 500);
         }
     }
-
     /**
      * @OA\Put(
      *     path="/api/tenant/locations/cities/{id}",
