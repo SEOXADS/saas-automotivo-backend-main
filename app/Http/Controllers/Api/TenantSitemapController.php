@@ -599,6 +599,12 @@ class TenantSitemapController extends Controller
             $type = $request->get('type');
             $force = $request->get('force', false);
 
+            $validTypes = ['index', 'images', 'videos', 'articles', 'vehicles', 'pages', null];
+            if ($type && !in_array($type, $validTypes)) {
+                $type = null; // Generate all if invalid type is passed
+            }
+
+
             $result = $this->generateSitemapForTenant($tenantId, $type, $force);
 
             return response()->json($result);
