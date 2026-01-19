@@ -274,7 +274,6 @@ class TenantSitemapController extends Controller
      */
     private function generateSitemapForTenant(int $tenantId, ?string $type = null, bool $force = false): array
     {
-        // Se tipo específico foi solicitado
         if ($type) {
             $config = TenantSitemapConfig::forTenant($tenantId)
                 ->byType($type)
@@ -290,10 +289,25 @@ class TenantSitemapController extends Controller
 
             return $this->generateSpecificSitemap($config, $force);
         } else {
-            // Gerar sitemap principal (index)
-            return $this->generateMainSitemap($tenantId, $force);
+            // Generate all sitemaps for all types
+            $configs = TenantSitemapConfig::forTenant($tenantId)->active()->get();
+            $results = [];
+            foreach ($configs as $config) {
+                if ($config->type !== 'index') {
+                    $results[$config->type] = $this->generateSpecificSitemap($config, $force);
+                }
+            }
+            // Generate the main index last
+            $main = $this->generateMainSitemap($tenantId, $force);
+            $results['index'] = $main;
+            return [
+                'success' => true,
+                'message' => 'Todos os sitemaps gerados com sucesso',
+                'results' => $results
+            ];
         }
     }
+
 
     /**
      * @OA\Get(
