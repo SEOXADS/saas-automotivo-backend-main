@@ -727,51 +727,87 @@ class TenantSitemapController extends Controller
     /**
      * Gerar URLs de veículos
      */
-    private function generateVehicleUrls(TenantSitemapConfig $config): string
-    {
-        $urls = '';
-        $tenantId = $config->tenant_id;
-        $configData = $config->getConfigForType();
+/**
+ * Gerar URLs de veículos
+ */
+private function generateVehicleUrls(TenantSitemapConfig $config): string
+{
+    $urls = '';
+    $tenantId = $config->tenant_id;
+    $configData = $config->getConfigForType();
 
-        /*$vehicles = Vehicle::where('tenant_id', $tenantId)
-            ->where('is_active', true)
-            ->limit($configData['max_vehicles'] ?? 1000)
-            ->orderBy('updated_at', 'desc')
-            ->get();
-        */
-        $vehicles = Vehicle::where('tenant_id', $tenantId)
-            ->where('is_active', true)
-            ->orderBy('updated_at', 'desc')
-            ->get();
+    // Get the tenant to access custom_domain
+    $tenant = \App\Models\Tenant::find($tenantId);
+    
+    // Use the tenant's custom domain (frontend), not the API domain
+    $baseUrl = $tenant->custom_domain ?? "https://{$tenant->subdomain}.seudominio.com.br";
+    // Remove trailing slash if present
+    $baseUrl = rtrim($baseUrl, '/');
 
+    $vehicles = Vehicle::where('tenant_id', $tenantId)
+        ->where('is_active', true)
+        ->orderBy('updated_at', 'desc')
+        ->get();
 
-        foreach ($vehicles as $vehicle) {
-            $urls .= "  <url>\n";
-            $urls .= "    <loc>" . url("/veiculos/{$vehicle->id}") . "</loc>\n";
-            $urls .= "    <lastmod>" . $vehicle->updated_at->toISOString() . "</lastmod>\n";
-            $urls .= "    <changefreq>{$config->change_frequency}</changefreq>\n";
-            $urls .= "    <priority>{$config->priority}</priority>\n";
-            $urls .= "  </url>\n";
+    foreach ($vehicles as $vehicle) {
+        // Generate the proper slug-based URL
+        $slug = $this->generateVehicleSlug($vehicle);
+        
+        $urls .= "  <url>\n";
+        $urls .= "    <loc>{$baseUrl}/comprar-carro/{$slug}</loc>\n";
+        $urls .= "    <lastmod>" . $vehicle->updated_at->toISOString() . "</lastmod>\n";
+        $urls .= "    <changefreq>{$config->change_frequency}</changefreq>\n";
+        $urls .= "    <priority>{$config->priority}</priority>\n";
+        $urls .= "  </url>\n";
 
-            // Incluir imagens se configurado
-            if ($configData['include_images'] ?? true) {
-                $images = VehicleImage::where('vehicle_id', $vehicle->id)
-                    ->where('is_active', true)
-                    ->get();
+        // Include images if configured
+        if ($configData['include_images'] ?? true) {
+            $images = VehicleImage::where('vehicle_id', $vehicle->id)->get();
 
-                foreach ($images as $image) {
-                    $urls .= "  <url>\n";
-                    $urls .= "    <loc>" . url("/api/public/images/{$tenantId}/{$vehicle->id}/{$image->filename}") . "</loc>\n";
-                    $urls .= "    <lastmod>" . $image->updated_at->toISOString() . "</lastmod>\n";
-                    $urls .= "    <changefreq>monthly</changefreq>\n";
-                    $urls .= "    <priority>0.3</priority>\n";
-                    $urls .= "  </url>\n";
-                }
+            foreach ($images as $image) {
+                // Use the public image URL accessible from the frontend
+                $imageUrl = "https://api.omegaveiculos.com.br/api/public/images/{$tenantId}/{$vehicle->id}/{$image->filename}";
+                
+                $urls .= "  <url>\n";
+                $urls .= "    <loc>{$imageUrl}</loc>\n";
+                $urls .= "    <lastmod>" . $image->updated_at->toISOString() . "</lastmod>\n";
+                $urls .= "    <changefreq>monthly</changefreq>\n";
+                $urls .= "    <priority>0.3</priority>\n";
+                $urls .= "  </url>\n";
             }
         }
-
-        return $urls;
     }
+
+    return $urls;
+}
+
+/**
+ * Generate vehicle slug matching frontend URL structure
+ */
+private function generateVehicleSlug(Vehicle $vehicle): string
+{
+    // Build the slug: brand-model-version-fuel-year-id
+    $parts = [
+        $vehicle->brand ?? '',
+        $vehicle->model ?? '',
+        $vehicle->version ?? '',
+        $vehicle->fuel ?? '',
+        $vehicle->year ?? '',
+        $vehicle->id
+    ];
+    
+    // Create slug from parts
+    $slug = collect($parts)
+        ->filter() // Remove empty values
+        ->map(function ($part) {
+            // Convert to lowercase, replace spaces with hyphens, remove special chars
+            return \Illuminate\Support\Str::slug($part);
+        })
+        ->implode('-');
+    
+    return $slug;
+}
+
 
     /**
      * Gerar URLs de imagens
