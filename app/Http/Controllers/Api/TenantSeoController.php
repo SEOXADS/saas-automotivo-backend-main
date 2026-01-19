@@ -1140,4 +1140,5 @@ class TenantSeoController extends Controller
             ], 500);
         }
     }
+
 }

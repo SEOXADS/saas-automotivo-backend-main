@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use App\Helpers\UrlHelper;
 use App\Models\TenantUser;
-use App\Models\Lead;
+use App\Models\TenantSeoUrl;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use App\Helpers\TokenHelper;
@@ -57,7 +57,6 @@ use App\Helpers\TokenHelper;
  *     @OA\Property(property="updated_at", type="string", format="date-time"),
  *     @OA\Property(property="brand", ref="#/components/schemas/VehicleBrand"),
  *     @OA\Property(property="model", ref="#/components/schemas/VehicleModel"),
-     @OA\Property(property="main_image", type="object", nullable=true, description="Imagem principal do veículo"),
  *     @OA\Property(property="images", type="array", @OA\Items(ref="#/components/schemas/VehicleImage"))
  * )
  *
@@ -71,7 +70,6 @@ use App\Helpers\TokenHelper;
  *     @OA\Property(property="original_name", type="string", example="civic_front.jpg"),
  *     @OA\Property(property="path", type="string", example="tenants/1/vehicles/1/1234567890_abc123.jpg"),
  *     @OA\Property(property="url", type="string", example="honda-civic-2023", description="Slug do título do veículo para URLs amigáveis"),
-     @OA\Property(property="image_url", type="string", example="http://localhost:8000/storage/tenants/1/vehicles/1/1234567890_abc123.jpg", description="URL completa da imagem"),
  *     @OA\Property(property="size", type="integer", example=1024000),
  *     @OA\Property(property="mime_type", type="string", example="image/jpeg"),
  *     @OA\Property(property="width", type="integer", nullable=true, example=1920),
@@ -574,6 +572,53 @@ class VehicleController extends Controller
             'data' => $vehicle->load(['brand', 'model', 'createdBy'])
         ], 201);
     }
+    
+    // In VehicleController::store() or VehicleObserver
+    private function createOrUpdateSeoUrl(Vehicle $vehicle): void
+    {
+        $brand = $vehicle->brand;
+        $model = $vehicle->model;
+        
+        $path = "/comprar/{$brand->slug}/{$model->slug}/{$vehicle->fuel_type_slug}-{$vehicle->year}";
+        
+        TenantSeoUrl::updateOrCreate(
+            [
+                'tenant_id' => $vehicle->tenant_id,
+                'path' => $path,
+                'locale' => 'pt-BR',
+            ],
+            [
+                'type' => 'vehicle',
+                'canonical_url' => url($path),
+                'is_indexable' => true,
+                'include_in_sitemap' => true,
+                'sitemap_priority' => 0.8,
+                'sitemap_changefreq' => 'weekly',
+                'lastmod' => now(),
+                'title' => "{$brand->name} {$model->name} {$vehicle->year} - Comprar",
+                'meta_description' => "Compre {$brand->name} {$model->name} {$vehicle->year} {$vehicle->fuel_type}. " .
+                                    "Preço: R$ " . number_format($vehicle->price, 2, ',', '.') . ". " .
+                                    "{$vehicle->mileage} km rodados.",
+                'structured_data_type' => 'Vehicle',
+                'structured_data_payload' => [
+                    'brand' => $brand->name,
+                    'model' => $model->name,
+                    'year' => $vehicle->year,
+                    'price' => $vehicle->price,
+                    'fuel' => $vehicle->fuel_type,
+                ],
+                'route_params' => [
+                    'vehicle_id' => $vehicle->id,
+                    'brand' => $brand->slug,
+                    'model' => $model->slug,
+                    'fuel' => $vehicle->fuel_type_slug,
+                    'year' => $vehicle->year,
+                ],
+                'redirect_type' => 'none',
+            ]
+        );
+    }
+
 
     /**
      * @OA\Put(

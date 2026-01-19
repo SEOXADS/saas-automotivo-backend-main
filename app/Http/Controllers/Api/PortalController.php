@@ -12,6 +12,7 @@ use App\Models\Tenant;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use App\Models\TenantSeoUrl;
 
 /**
  * @OA\Tag(
@@ -1285,6 +1286,170 @@ class PortalController extends Controller
             ], 500);
         }
     }
+
+    public function showVehicle($brand, $model, $slug, Request $request)
+    {
+        $tenant = $this->getCurrentTenant($request);
+        
+        if (!$tenant) {
+            abort(404);
+        }
+
+        // Build the current path
+        $currentPath = "/comprar/{$brand}/{$model}/{$slug}";
+        
+        // Try to resolve from TenantSeoUrl first (handles redirects + SEO)
+        $seoUrl = TenantSeoUrl::resolvePath($tenant->id, app()->getLocale(), $currentPath)->first();
+        
+        // Handle redirects
+        if ($seoUrl && $seoUrl->hasRedirect()) {
+            $redirect = $seoUrl->resolveRedirect();
+            return redirect($redirect['redirect_target'], (int) $redirect['redirect_type']);
+        }
+        
+        // Parse slug for vehicle lookup
+        $slugParts = explode('-', $slug);
+        if (count($slugParts) < 2) {
+            abort(404);
+        }
+        
+        $year = array_pop($slugParts);
+        $fuel = implode('-', $slugParts);
+        
+        // Find the vehicle
+        $vehicle = Vehicle::byTenant($tenant->id)
+            ->whereHas('brand', fn($q) => $q->where('slug', $brand))
+            ->whereHas('model', fn($q) => $q->where('slug', $model))
+            ->where('fuel_type_slug', $fuel)
+            ->where('year', $year)
+            ->active()
+            ->available()
+            ->with(['brand', 'model', 'images', 'features'])
+            ->first();
+        
+        if (!$vehicle) {
+            abort(404);
+        }
+        
+        // Increment views
+        $vehicle->incrementViews();
+        
+        // Get or create SEO data
+        $seoData = $this->getSeoDataForVehicle($vehicle, $seoUrl, $tenant);
+        
+        return view('portal.vehicle.show', compact('vehicle', 'seoData'));
+    }
+
+    /**
+     * Get SEO data for vehicle page
+     */
+    private function getSeoDataForVehicle(Vehicle $vehicle, ?TenantSeoUrl $seoUrl, Tenant $tenant): array
+    {
+        if ($seoUrl) {
+            return [
+                'title' => $seoUrl->title,
+                'meta_description' => $seoUrl->meta_description,
+                'canonical_url' => $seoUrl->canonical_url,
+                'og_image' => $seoUrl->og_image,
+                'structured_data' => $seoUrl->generateStructuredData(),
+                'breadcrumbs' => $seoUrl->generateBreadcrumbs(),
+            ];
+        }
+        
+        // Fallback: generate SEO data dynamically
+        $brandName = $vehicle->brand->name ?? '';
+        $modelName = $vehicle->model->name ?? '';
+        
+        return [
+            'title' => "{$brandName} {$modelName} {$vehicle->year} - {$tenant->name}",
+            'meta_description' => "Compre {$brandName} {$modelName} {$vehicle->year} {$vehicle->fuel_type}. Preço: R$ " . number_format($vehicle->price, 2, ',', '.'),
+            'canonical_url' => url("/comprar/{$vehicle->brand->slug}/{$vehicle->model->slug}/{$vehicle->fuel_type_slug}-{$vehicle->year}"),
+            'og_image' => $vehicle->primaryImage?->url,
+            'structured_data' => $this->generateVehicleStructuredData($vehicle, $tenant),
+            'breadcrumbs' => $this->generateVehicleBreadcrumbs($vehicle),
+        ];
+    }
+
+    /**
+     * Generate Vehicle JSON-LD structured data
+     */
+    private function generateVehicleStructuredData(Vehicle $vehicle, Tenant $tenant): array
+    {
+        return [
+            '@context' => 'https://schema.org',
+            '@type' => 'Vehicle',
+            'name' => $vehicle->title,
+            'brand' => [
+                '@type' => 'Brand',
+                'name' => $vehicle->brand->name ?? ''
+            ],
+            'model' => $vehicle->model->name ?? '',
+            'vehicleModelDate' => $vehicle->year,
+            'fuelType' => $vehicle->fuel_type,
+            'vehicleTransmission' => $vehicle->transmission,
+            'mileageFromOdometer' => [
+                '@type' => 'QuantitativeValue',
+                'value' => $vehicle->mileage,
+                'unitCode' => 'KMT'
+            ],
+            'offers' => [
+                '@type' => 'Offer',
+                'price' => $vehicle->price,
+                'priceCurrency' => 'BRL',
+                'availability' => 'https://schema.org/InStock',
+                'seller' => [
+                    '@type' => 'Organization',
+                    'name' => $tenant->name
+                ]
+            ],
+            'image' => $vehicle->images->pluck('url')->toArray(),
+        ];
+    }
+
+    /**
+     * Generate breadcrumbs for vehicle page
+     */
+    private function generateVehicleBreadcrumbs(Vehicle $vehicle): array
+    {
+        return [
+            '@context' => 'https://schema.org',
+            '@type' => 'BreadcrumbList',
+            'itemListElement' => [
+                [
+                    '@type' => 'ListItem',
+                    'position' => 1,
+                    'name' => 'Home',
+                    'item' => url('/')
+                ],
+                [
+                    '@type' => 'ListItem',
+                    'position' => 2,
+                    'name' => 'Comprar',
+                    'item' => url('/comprar')
+                ],
+                [
+                    '@type' => 'ListItem',
+                    'position' => 3,
+                    'name' => $vehicle->brand->name,
+                    'item' => url("/comprar/{$vehicle->brand->slug}")
+                ],
+                [
+                    '@type' => 'ListItem',
+                    'position' => 4,
+                    'name' => $vehicle->model->name,
+                    'item' => url("/comprar/{$vehicle->brand->slug}/{$vehicle->model->slug}")
+                ],
+                [
+                    '@type' => 'ListItem',
+                    'position' => 5,
+                    'name' => $vehicle->title,
+                    'item' => url("/comprar/{$vehicle->brand->slug}/{$vehicle->model->slug}/{$vehicle->fuel_type_slug}-{$vehicle->year}")
+                ]
+            ]
+        ];
+    }
+
+
 }
 
 /**

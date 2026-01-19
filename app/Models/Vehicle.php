@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str; 
 
 class Vehicle extends Model
 {
@@ -298,4 +299,16 @@ class Vehicle extends Model
     {
         return $query->where('url', $url)->where('tenant_id', $tenantId);
     }
+
+    public function getSeoUrlAttribute(): string
+    {
+        $brand = $this->brand ? Str::slug($this->brand->name) : 'sem-marca';
+        $model = $this->model ? Str::slug($this->model->name) : 'sem-modelo';
+        $fuel = $this->fuel_type ? Str::slug($this->fuel_type) : 'sem-combustivel';
+        $year = $this->year ?? 'sem-ano';
+        
+        return "/comprar/{$brand}/{$model}/{$fuel}-{$year}";
+    }
+
+
 }

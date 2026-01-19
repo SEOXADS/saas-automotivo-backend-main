@@ -149,7 +149,8 @@ class TenantConfigurationController extends Controller
                 'social_media' => 'nullable|array',
                 'logo_url' => 'nullable|string',
                 'favicon_url' => 'nullable|string',
-                'banner_url' => 'nullable|string'
+                'banner_url' => 'nullable|string',
+                'about_image_url' => 'nullable|string'
             ]);
 
             Log::info('Dados recebidos para validação:', [

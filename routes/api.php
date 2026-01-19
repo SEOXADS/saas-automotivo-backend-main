@@ -1038,3 +1038,10 @@ Route::get('/test-image/{tenantId}/{vehicleId}/{filename}', function($tenantId, 
 })->where('filename', '.*');
 
 
+
+
+//BEST WAY FOR SEO NEW URLS
+// In web.php (not api.php) for frontend URLs
+Route::get('/comprar/{brand}/{model}/{slug}', [PortalController::class, 'showVehicle'])
+    ->name('vehicle.show.seo');
+

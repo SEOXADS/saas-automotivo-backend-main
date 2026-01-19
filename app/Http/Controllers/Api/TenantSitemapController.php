@@ -21,6 +21,23 @@ use App\Http\Requests\TenantSitemapRequest;
 class TenantSitemapController extends Controller
 {
     /**
+     * Helper method to get tenant from request
+     */
+    private function getTenantFromRequest(Request $request)
+    {
+        return $request->attributes->get('current_tenant');
+    }
+
+    /**
+     * Helper method to get tenant ID from request
+     */
+    private function getTenantIdFromRequest(Request $request): ?int
+    {
+        $tenant = $this->getTenantFromRequest($request);
+        return $tenant ? $tenant->id : null;
+    }
+
+    /**
      * @OA\Get(
      *     path="/api/tenant/sitemap/configs",
      *     summary="Listar configurações de sitemap",
@@ -78,7 +95,16 @@ class TenantSitemapController extends Controller
     public function getConfigs(Request $request): JsonResponse
     {
         try {
-            $tenantId = $request->user()->tenant_id;
+            $tenant = $this->getTenantFromRequest($request);
+            
+            if (!$tenant) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Tenant não identificado'
+                ], 401);
+            }
+            
+            $tenantId = $tenant->id;
 
             $query = TenantSitemapConfig::forTenant($tenantId);
 
@@ -116,7 +142,9 @@ class TenantSitemapController extends Controller
         } catch (\Exception $e) {
             Log::error('Erro ao listar configurações de sitemap', [
                 'error' => $e->getMessage(),
-                'tenant_id' => $request->user()->tenant_id ?? null
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'tenant_id' => $this->getTenantIdFromRequest($request)
             ]);
 
             return response()->json([
@@ -166,7 +194,16 @@ class TenantSitemapController extends Controller
     public function createConfig(TenantSitemapRequest $request): JsonResponse
     {
         try {
-            $tenantId = $request->user()->tenant_id;
+            $tenant = $this->getTenantFromRequest($request);
+            
+            if (!$tenant) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Tenant não identificado'
+                ], 401);
+            }
+            
+            $tenantId = $tenant->id;
 
             // Verificar se URL já existe para o tenant
             $existingConfig = TenantSitemapConfig::forTenant($tenantId)
@@ -193,7 +230,6 @@ class TenantSitemapController extends Controller
     
             $this->handleSitemapScheduling($config);
 
-
             return response()->json([
                 'success' => true,
                 'message' => 'Configuração de sitemap criada com sucesso',
@@ -203,7 +239,9 @@ class TenantSitemapController extends Controller
         } catch (\Exception $e) {
             Log::error('Erro ao criar configuração de sitemap', [
                 'error' => $e->getMessage(),
-                'tenant_id' => $request->user()->tenant_id ?? null
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'tenant_id' => $this->getTenantIdFromRequest($request)
             ]);
 
             return response()->json([
@@ -219,22 +257,41 @@ class TenantSitemapController extends Controller
     protected function handleSitemapScheduling(TenantSitemapConfig $config)
     {
         try {
-            $request = new Request([
-                'type' => $config->type,
-                'force' => true
-            ]);
-            
-            // Inject the user/tenant context into the request
-            $request->setUserResolver(function () use ($config) {
-                $user = new \stdClass();
-                $user->tenant_id = $config->tenant_id;
-                return $user;
-            });
-
-            $this->generateSitemap($request);
+            // Generate sitemap directly using the config's tenant_id
+            $this->generateSitemapForTenant($config->tenant_id, $config->type, true);
             
         } catch (\Exception $e) {
-            Log::error('Failed to generate initial sitemap', ['error' => $e->getMessage()]);
+            Log::error('Failed to generate initial sitemap', [
+                'error' => $e->getMessage(),
+                'tenant_id' => $config->tenant_id,
+                'config_id' => $config->id
+            ]);
+        }
+    }
+
+    /**
+     * Internal method to generate sitemap for a specific tenant
+     */
+    private function generateSitemapForTenant(int $tenantId, ?string $type = null, bool $force = false): array
+    {
+        // Se tipo específico foi solicitado
+        if ($type) {
+            $config = TenantSitemapConfig::forTenant($tenantId)
+                ->byType($type)
+                ->active()
+                ->first();
+
+            if (!$config) {
+                return [
+                    'success' => false,
+                    'error' => "Configuração de sitemap do tipo '{$type}' não encontrada"
+                ];
+            }
+
+            return $this->generateSpecificSitemap($config, $force);
+        } else {
+            // Gerar sitemap principal (index)
+            return $this->generateMainSitemap($tenantId, $force);
         }
     }
 
@@ -268,7 +325,16 @@ class TenantSitemapController extends Controller
     public function getConfig(Request $request, int $id): JsonResponse
     {
         try {
-            $tenantId = $request->user()->tenant_id;
+            $tenant = $this->getTenantFromRequest($request);
+            
+            if (!$tenant) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Tenant não identificado'
+                ], 401);
+            }
+            
+            $tenantId = $tenant->id;
 
             $config = TenantSitemapConfig::forTenant($tenantId)->find($id);
 
@@ -287,7 +353,9 @@ class TenantSitemapController extends Controller
         } catch (\Exception $e) {
             Log::error('Erro ao buscar configuração de sitemap', [
                 'error' => $e->getMessage(),
-                'tenant_id' => $request->user()->tenant_id ?? null,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'tenant_id' => $this->getTenantIdFromRequest($request),
                 'config_id' => $id
             ]);
 
@@ -341,7 +409,16 @@ class TenantSitemapController extends Controller
     public function updateConfig(TenantSitemapRequest $request, int $id): JsonResponse
     {
         try {
-            $tenantId = $request->user()->tenant_id;
+            $tenant = $this->getTenantFromRequest($request);
+            
+            if (!$tenant) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Tenant não identificado'
+                ], 401);
+            }
+            
+            $tenantId = $tenant->id;
 
             $config = TenantSitemapConfig::forTenant($tenantId)->find($id);
 
@@ -380,7 +457,9 @@ class TenantSitemapController extends Controller
         } catch (\Exception $e) {
             Log::error('Erro ao atualizar configuração de sitemap', [
                 'error' => $e->getMessage(),
-                'tenant_id' => $request->user()->tenant_id ?? null,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'tenant_id' => $this->getTenantIdFromRequest($request),
                 'config_id' => $id
             ]);
 
@@ -421,7 +500,16 @@ class TenantSitemapController extends Controller
     public function deleteConfig(Request $request, int $id): JsonResponse
     {
         try {
-            $tenantId = $request->user()->tenant_id;
+            $tenant = $this->getTenantFromRequest($request);
+            
+            if (!$tenant) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Tenant não identificado'
+                ], 401);
+            }
+            
+            $tenantId = $tenant->id;
 
             $config = TenantSitemapConfig::forTenant($tenantId)->find($id);
 
@@ -442,7 +530,9 @@ class TenantSitemapController extends Controller
         } catch (\Exception $e) {
             Log::error('Erro ao excluir configuração de sitemap', [
                 'error' => $e->getMessage(),
-                'tenant_id' => $request->user()->tenant_id ?? null,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'tenant_id' => $this->getTenantIdFromRequest($request),
                 'config_id' => $id
             ]);
 
@@ -482,36 +572,29 @@ class TenantSitemapController extends Controller
     public function generateSitemap(Request $request): JsonResponse
     {
         try {
-            $tenantId = $request->user()->tenant_id;
+            $tenant = $this->getTenantFromRequest($request);
+            
+            if (!$tenant) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'Tenant não identificado'
+                ], 401);
+            }
+            
+            $tenantId = $tenant->id;
             $type = $request->get('type');
             $force = $request->get('force', false);
 
-            // Se tipo específico foi solicitado
-            if ($type) {
-                $config = TenantSitemapConfig::forTenant($tenantId)
-                    ->byType($type)
-                    ->active()
-                    ->first();
-
-                if (!$config) {
-                    return response()->json([
-                        'success' => false,
-                        'error' => "Configuração de sitemap do tipo '{$type}' não encontrada"
-                    ], 404);
-                }
-
-                $result = $this->generateSpecificSitemap($config, $force);
-            } else {
-                // Gerar sitemap principal (index)
-                $result = $this->generateMainSitemap($tenantId, $force);
-            }
+            $result = $this->generateSitemapForTenant($tenantId, $type, $force);
 
             return response()->json($result);
 
         } catch (\Exception $e) {
             Log::error('Erro ao gerar sitemap', [
                 'error' => $e->getMessage(),
-                'tenant_id' => $request->user()->tenant_id ?? null,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'tenant_id' => $this->getTenantIdFromRequest($request),
                 'type' => $request->get('type')
             ]);
 
