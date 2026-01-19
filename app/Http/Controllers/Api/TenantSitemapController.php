@@ -723,10 +723,6 @@ class TenantSitemapController extends Controller
             'generated_at' => now()->toISOString()
         ];
     }
-
-    /**
-     * Gerar URLs de veículos
-     */
 /**
  * Gerar URLs de veículos
  */
@@ -736,13 +732,12 @@ private function generateVehicleUrls(TenantSitemapConfig $config): string
     $tenantId = $config->tenant_id;
     $configData = $config->getConfigForType();
 
-    // Get the tenant to access custom_domain
+    // Get tenant to access custom_domain
     $tenant = \App\Models\Tenant::find($tenantId);
     
-    // Use the tenant's custom domain (frontend), not the API domain
-    $baseUrl = $tenant->custom_domain ?? "https://{$tenant->subdomain}.seudominio.com.br";
-    // Remove trailing slash if present
-    $baseUrl = rtrim($baseUrl, '/');
+    // Use tenant's custom domain (frontend), NOT the API URL
+    $baseUrl = $tenant->custom_domain ?? "https://{$tenant->subdomain}.com.br";
+    $baseUrl = rtrim($baseUrl, '/'); // Remove trailing slash
 
     $vehicles = Vehicle::where('tenant_id', $tenantId)
         ->where('is_active', true)
@@ -750,22 +745,24 @@ private function generateVehicleUrls(TenantSitemapConfig $config): string
         ->get();
 
     foreach ($vehicles as $vehicle) {
-        // Generate the proper slug-based URL
-        $slug = $this->generateVehicleSlug($vehicle);
+        // Use the vehicle's url column for the slug, or generate one
+        $vehicleSlug = $vehicle->url ?? $this->generateVehicleSlug($vehicle);
+        
+        // Build the full frontend URL
+        $vehicleUrl = "{$baseUrl}/comprar-carro/{$vehicleSlug}";
         
         $urls .= "  <url>\n";
-        $urls .= "    <loc>{$baseUrl}/comprar-carro/{$slug}</loc>\n";
+        $urls .= "    <loc>{$vehicleUrl}</loc>\n";
         $urls .= "    <lastmod>" . $vehicle->updated_at->toISOString() . "</lastmod>\n";
         $urls .= "    <changefreq>{$config->change_frequency}</changefreq>\n";
         $urls .= "    <priority>{$config->priority}</priority>\n";
         $urls .= "  </url>\n";
 
-        // Include images if configured
+        // Include images if configured (keep using API URL for images)
         if ($configData['include_images'] ?? true) {
             $images = VehicleImage::where('vehicle_id', $vehicle->id)->get();
 
             foreach ($images as $image) {
-                // Use the public image URL accessible from the frontend
                 $imageUrl = "https://api.omegaveiculos.com.br/api/public/images/{$tenantId}/{$vehicle->id}/{$image->filename}";
                 
                 $urls .= "  <url>\n";
@@ -782,90 +779,97 @@ private function generateVehicleUrls(TenantSitemapConfig $config): string
 }
 
 /**
- * Generate vehicle slug matching frontend URL structure
+ * Generate vehicle slug from vehicle data (fallback if url column is empty)
  */
 private function generateVehicleSlug(Vehicle $vehicle): string
 {
-    // Build the slug: brand-model-version-fuel-year-id
+    // Get brand and model names from relationships
+    $brand = $vehicle->brand ? $vehicle->brand->name : '';
+    $model = $vehicle->model ? $vehicle->model->name : '';
+    
     $parts = [
-        $vehicle->brand ?? '',
-        $vehicle->model ?? '',
+        $brand,
+        $model,
         $vehicle->version ?? '',
-        $vehicle->fuel ?? '',
+        $vehicle->fuel_type ?? '',
         $vehicle->year ?? '',
         $vehicle->id
     ];
     
-    // Create slug from parts
+    // Create slug: brand-model-version-fuel-year-id
     $slug = collect($parts)
-        ->filter() // Remove empty values
-        ->map(function ($part) {
-            // Convert to lowercase, replace spaces with hyphens, remove special chars
-            return \Illuminate\Support\Str::slug($part);
-        })
+        ->filter()
+        ->map(fn($part) => \Illuminate\Support\Str::slug($part))
         ->implode('-');
     
     return $slug;
 }
 
 
-    /**
-     * Gerar URLs de imagens
-     */
-    private function generateImageUrls(TenantSitemapConfig $config): string
-    {
-        $urls = '';
-        $tenantId = $config->tenant_id;
-        $configData = $config->getConfigForType();
+ /**
+ * Gerar URLs de imagens
+ */
+private function generateImageUrls(TenantSitemapConfig $config): string
+{
+    $urls = '';
+    $tenantId = $config->tenant_id;
+    
+    // Images should use API URL (where they're actually served)
+    $apiBaseUrl = "https://api.omegaveiculos.com.br";
 
-        $images = VehicleImage::whereHas('vehicle', function ($query) use ($tenantId) {
-                $query->where('tenant_id', $tenantId)->where('is_active', true);
-            })
-            ->where('is_active', true)
-            ->orderBy('updated_at', 'desc')
-            ->get();
+    $images = VehicleImage::whereHas('vehicle', function ($query) use ($tenantId) {
+            $query->where('tenant_id', $tenantId)->where('is_active', true);
+        })
+        ->orderBy('updated_at', 'desc')
+        ->get();
 
-        foreach ($images as $image) {
-            $urls .= "  <url>\n";
-            $urls .= "    <loc>" . url("/api/public/images/{$tenantId}/{$image->vehicle_id}/{$image->filename}") . "</loc>\n";
-            $urls .= "    <lastmod>" . $image->updated_at->toISOString() . "</lastmod>\n";
-            $urls .= "    <changefreq>{$config->change_frequency}</changefreq>\n";
-            $urls .= "    <priority>{$config->priority}</priority>\n";
-            $urls .= "  </url>\n";
-        }
-
-        return $urls;
+    foreach ($images as $image) {
+        $urls .= "  <url>\n";
+        $urls .= "    <loc>{$apiBaseUrl}/api/public/images/{$tenantId}/{$image->vehicle_id}/{$image->filename}</loc>\n";
+        $urls .= "    <lastmod>" . $image->updated_at->toISOString() . "</lastmod>\n";
+        $urls .= "    <changefreq>{$config->change_frequency}</changefreq>\n";
+        $urls .= "    <priority>{$config->priority}</priority>\n";
+        $urls .= "  </url>\n";
     }
 
-    /**
-     * Gerar URLs de páginas estáticas
-     */
-    private function generatePageUrls(TenantSitemapConfig $config): string
-    {
-        $urls = '';
-        $baseUrl = config('app.url');
+    return $urls;
+}
 
-        $pages = [
-            '/' => 'Página inicial',
-            '/sobre' => 'Sobre nós',
-            '/contato' => 'Contato',
-            '/veiculos' => 'Lista de veículos',
-            '/marcas' => 'Marcas',
-            '/financiamento' => 'Financiamento',
-            '/seguros' => 'Seguros'
-        ];
+/**
+ * Gerar URLs de páginas estáticas
+ */
+private function generatePageUrls(TenantSitemapConfig $config): string
+{
+    $urls = '';
+    $tenantId = $config->tenant_id;
+    
+    // Get tenant's custom domain
+    $tenant = \App\Models\Tenant::find($tenantId);
+    $baseUrl = $tenant->custom_domain ?? "https://{$tenant->subdomain}.com.br";
+    $baseUrl = rtrim($baseUrl, '/');
 
-        foreach ($pages as $path => $title) {
-            $urls .= "  <url>\n";
-            $urls .= "    <loc>{$baseUrl}{$path}</loc>\n";
-            $urls .= "    <lastmod>" . now()->toISOString() . "</lastmod>\n";
-            $urls .= "    <changefreq>{$config->change_frequency}</changefreq>\n";
-            $urls .= "    <priority>{$config->priority}</priority>\n";
-            $urls .= "  </url>\n";
-        }
+    $pages = [
+        '/' => 'Página inicial',
+        '/sobre' => 'Sobre nós',
+        '/contato' => 'Contato',
+        '/veiculos' => 'Lista de veículos',
+        '/marcas' => 'Marcas',
+        '/financiamento' => 'Financiamento',
+        '/seguros' => 'Seguros'
+    ];
 
-        return $urls;
+    foreach ($pages as $path => $title) {
+        $urls .= "  <url>\n";
+        $urls .= "    <loc>{$baseUrl}{$path}</loc>\n";
+        $urls .= "    <lastmod>" . now()->toISOString() . "</lastmod>\n";
+        $urls .= "    <changefreq>{$config->change_frequency}</changefreq>\n";
+        $urls .= "    <priority>{$config->priority}</priority>\n";
+        $urls .= "  </url>\n";
     }
+
+    return $urls;
+}
+
 
     /**
      * Gerar URLs padrão
