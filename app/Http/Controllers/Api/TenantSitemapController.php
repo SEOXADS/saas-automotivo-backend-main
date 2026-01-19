@@ -605,6 +605,7 @@ class TenantSitemapController extends Controller
         }
     }
 
+
     /**
      * Gerar sitemap principal (index)
      */
