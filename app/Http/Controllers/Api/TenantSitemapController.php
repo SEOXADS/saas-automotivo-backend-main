@@ -257,8 +257,8 @@ class TenantSitemapController extends Controller
     protected function handleSitemapScheduling(TenantSitemapConfig $config)
     {
         try {
-            // Generate sitemap directly using the config's tenant_id
-            $this->generateSitemapForTenant($config->tenant_id, $config->type, true);
+            // When a new config is created, generate ALL sitemaps for the tenant
+            $this->generateSitemapForTenant($config->tenant_id, null, true);
             
         } catch (\Exception $e) {
             Log::error('Failed to generate initial sitemap', [
@@ -269,44 +269,105 @@ class TenantSitemapController extends Controller
         }
     }
 
-    /**
-     * Internal method to generate sitemap for a specific tenant
-     */
-    private function generateSitemapForTenant(int $tenantId, ?string $type = null, bool $force = false): array
-    {
-        if ($type) {
-            $config = TenantSitemapConfig::forTenant($tenantId)
-                ->byType($type)
-                ->active()
-                ->first();
+ /**
+ * Internal method to generate sitemap for a specific tenant
+ */
+private function generateSitemapForTenant(int $tenantId, ?string $type = null, bool $force = false): array
+{
+    Log::info('🎯 [Sitemap] Starting generateSitemapForTenant', [
+        'tenant_id' => $tenantId,
+        'type' => $type,
+        'force' => $force
+    ]);
 
-            if (!$config) {
-                return [
-                    'success' => false,
-                    'error' => "Configuração de sitemap do tipo '{$type}' não encontrada"
-                ];
-            }
+    if ($type) {
+        // Generate specific sitemap type
+        Log::info('🎯 [Sitemap] Generating specific type', ['type' => $type]);
+        
+        $config = TenantSitemapConfig::forTenant($tenantId)
+            ->byType($type)
+            ->active()
+            ->first();
 
-            return $this->generateSpecificSitemap($config, $force);
-        } else {
-            // Generate all sitemaps for all types
-            $configs = TenantSitemapConfig::forTenant($tenantId)->active()->get();
-            $results = [];
-            foreach ($configs as $config) {
-                if ($config->type !== 'index') {
-                    $results[$config->type] = $this->generateSpecificSitemap($config, $force);
-                }
-            }
-            // Generate the main index last
-            $main = $this->generateMainSitemap($tenantId, $force);
-            $results['index'] = $main;
+        Log::info('🎯 [Sitemap] Config found for specific type', [
+            'config_exists' => !is_null($config),
+            'config_id' => $config->id ?? null,
+            'config_type' => $config->type ?? null
+        ]);
+
+        if (!$config) {
+            Log::warning('🎯 [Sitemap] No active config found for type', [
+                'tenant_id' => $tenantId,
+                'type' => $type
+            ]);
             return [
-                'success' => true,
-                'message' => 'Todos os sitemaps gerados com sucesso',
-                'results' => $results
+                'success' => false,
+                'error' => "Configuração de sitemap do tipo '{$type}' não encontrada"
             ];
         }
+
+        $result = $this->generateSpecificSitemap($config, $force);
+        Log::info('🎯 [Sitemap] Specific sitemap generation result', $result);
+        return $result;
+    } else {
+        // Generate ALL sitemaps
+        Log::info('🎯 [Sitemap] Generating ALL sitemaps for tenant', ['tenant_id' => $tenantId]);
+        
+        $configs = TenantSitemapConfig::forTenant($tenantId)->active()->get();
+        
+        Log::info('🎯 [Sitemap] Active configs found', [
+            'count' => $configs->count(),
+            'configs' => $configs->map(function($config) {
+                return [
+                    'id' => $config->id,
+                    'type' => $config->type,
+                    'name' => $config->name,
+                    'is_active' => $config->is_active
+                ];
+            })->toArray()
+        ]);
+
+        $results = [];
+        
+        // First, generate all specific sitemaps (excluding index)
+        $specificConfigs = $configs->where('type', '!=', 'index');
+        Log::info('🎯 [Sitemap] Specific configs to generate', [
+            'count' => $specificConfigs->count(),
+            'types' => $specificConfigs->pluck('type')->toArray()
+        ]);
+        
+        foreach ($specificConfigs as $config) {
+            Log::info('🎯 [Sitemap] Generating specific sitemap', [
+                'config_id' => $config->id,
+                'type' => $config->type,
+                'name' => $config->name
+            ]);
+            
+            $results[$config->type] = $this->generateSpecificSitemap($config, $force);
+            
+            Log::info('🎯 [Sitemap] Generated specific sitemap result', [
+                'type' => $config->type,
+                'success' => $results[$config->type]['success'] ?? false
+            ]);
+        }
+        
+        // Then, generate the main index sitemap
+        Log::info('🎯 [Sitemap] Generating main index sitemap');
+        $mainIndexResult = $this->generateMainSitemap($tenantId, $force);
+        $results['index'] = $mainIndexResult;
+        
+        Log::info('🎯 [Sitemap] All sitemaps generated', [
+            'results' => array_keys($results),
+            'overall_success' => !empty($results)
+        ]);
+        
+        return [
+            'success' => true,
+            'message' => 'Todos os sitemaps gerados com sucesso',
+            'results' => $results
+        ];
     }
+}
 
 
     /**
@@ -677,78 +738,153 @@ class TenantSitemapController extends Controller
      * Gerar sitemap específico por tipo
      */
     private function generateSpecificSitemap(TenantSitemapConfig $config, bool $force = false): array
-    {
-        $filename = "sitemap-{$config->type}.xml";
-        $filePath = "sitemaps/tenant_{$config->tenant_id}/{$filename}";
+{
+    Log::info('📄 [Sitemap] Starting generateSpecificSitemap', [
+        'config_id' => $config->id,
+        'type' => $config->type,
+        'tenant_id' => $config->tenant_id
+    ]);
 
-        // Verificar se arquivo já existe e não é para forçar
-        if (!$force && Storage::disk('public')->exists($filePath)) {
-            return [
-                'success' => true,
-                'message' => 'Sitemap já existe',
-                'file_path' => "/public/{$filePath}",
-                'url' => config('app.url') . "/storage/{$filePath}",
-                'generated_at' => Storage::disk('public')->lastModified($filePath)
-            ];
-        }
+    $filename = "sitemap-{$config->type}.xml";
+    $filePath = "sitemaps/tenant_{$config->tenant_id}/{$filename}";
 
-        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
-        $xml .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+    Log::info('📄 [Sitemap] File path info', [
+        'filename' => $filename,
+        'filePath' => $filePath,
+        'disk' => 'public'
+    ]);
 
-        // Gerar URLs baseado no tipo
-        switch ($config->type) {
-            case 'vehicles':
-                $xml .= $this->generateVehicleUrls($config);
-                break;
-            case 'images':
-                $xml .= $this->generateImageUrls($config);
-                break;
-            case 'pages':
-                $xml .= $this->generatePageUrls($config);
-                break;
-            default:
-                $xml .= $this->generateDefaultUrls($config);
-        }
-
-        $xml .= '</urlset>';
-
-        // Salvar arquivo
-        Storage::disk('public')->put($filePath, $xml);
-
+    // Verificar se arquivo já existe e não é para forçar
+    if (!$force && Storage::disk('public')->exists($filePath)) {
+        Log::info('📄 [Sitemap] File already exists, skipping', [
+            'filePath' => $filePath,
+            'lastModified' => Storage::disk('public')->lastModified($filePath)
+        ]);
         return [
             'success' => true,
-            'message' => 'Sitemap gerado com sucesso',
+            'message' => 'Sitemap já existe',
             'file_path' => "/public/{$filePath}",
             'url' => config('app.url') . "/storage/{$filePath}",
-            'generated_at' => now()->toISOString()
+            'generated_at' => Storage::disk('public')->lastModified($filePath)
         ];
     }
+
+    // Create directory if it doesn't exist
+    $directory = dirname($filePath);
+    if (!Storage::disk('public')->exists($directory)) {
+        Storage::disk('public')->makeDirectory($directory);
+        Log::info('📄 [Sitemap] Created directory', ['directory' => $directory]);
+    }
+
+    $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+    $xml .= '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+
+    // Gerar URLs baseado no tipo
+    Log::info('📄 [Sitemap] Generating URLs for type', ['type' => $config->type]);
+    
+    $urlsContent = '';
+    switch ($config->type) {
+        case 'vehicles':
+            $urlsContent = $this->generateVehicleUrls($config);
+            break;
+        case 'images':
+            $urlsContent = $this->generateImageUrls($config);
+            break;
+        case 'pages':
+            $urlsContent = $this->generatePageUrls($config);
+            break;
+        default:
+            $urlsContent = $this->generateDefaultUrls($config);
+    }
+
+    Log::info('📄 [Sitemap] Generated URL content length', [
+        'type' => $config->type,
+        'content_length' => strlen($urlsContent),
+        'has_content' => !empty(trim($urlsContent))
+    ]);
+
+    $xml .= $urlsContent;
+    $xml .= '</urlset>';
+
+    // Salvar arquivo
+    try {
+        $bytesWritten = Storage::disk('public')->put($filePath, $xml);
+        Log::info('📄 [Sitemap] File saved successfully', [
+            'filePath' => $filePath,
+            'bytesWritten' => $bytesWritten,
+            'fileSize' => Storage::disk('public')->size($filePath)
+        ]);
+    } catch (\Exception $e) {
+        Log::error('📄 [Sitemap] Failed to save file', [
+            'error' => $e->getMessage(),
+            'filePath' => $filePath
+        ]);
+        throw $e;
+    }
+
+    $fullUrl = config('app.url') . "/storage/{$filePath}";
+    
+    Log::info('📄 [Sitemap] Sitemap generation completed', [
+        'type' => $config->type,
+        'url' => $fullUrl,
+        'file_exists' => Storage::disk('public')->exists($filePath)
+    ]);
+
+    return [
+        'success' => true,
+        'message' => 'Sitemap gerado com sucesso',
+        'file_path' => "/public/{$filePath}",
+        'url' => $fullUrl,
+        'generated_at' => now()->toISOString()
+    ];
+}
 /**
  * Gerar URLs de veículos
  */
 private function generateVehicleUrls(TenantSitemapConfig $config): string
 {
-    Log::info("generateVehicleUrls");
+    Log::info('🚗 [Vehicle URLs] Starting generateVehicleUrls', [
+        'config_id' => $config->id,
+        'tenant_id' => $config->tenant_id
+    ]);
+
     $urls = '';
     $tenantId = $config->tenant_id;
+    
+    // Get tenant
     $tenant = \App\Models\Tenant::find($tenantId);
-    Log::info("TENANT" . $tenant);
+    
+    if (!$tenant) {
+        Log::error('🚗 [Vehicle URLs] Tenant not found', ['tenant_id' => $tenantId]);
+        return $urls;
+    }
 
     // Use the tenant's custom domain
-    $baseUrl = rtrim($tenant->custom_domain, '/');
-    Log::info("baseUrl" . $baseUrl);
+    $baseUrl = rtrim($tenant->custom_domain ?? config('app.url'), '/');
+    Log::info('🚗 [Vehicle URLs] Base URL', ['baseUrl' => $baseUrl]);
 
+    // Get vehicles
     $vehicles = Vehicle::where('tenant_id', $tenantId)
         ->where('is_active', true)
         ->orderBy('updated_at', 'desc')
         ->get();
 
-    Log::info("vehicles" . $vehicles);
-
+    Log::info('🚗 [Vehicle URLs] Vehicles found', [
+        'count' => $vehicles->count(),
+        'tenant_id' => $tenantId
+    ]);
 
     foreach ($vehicles as $vehicle) {
-        // Use the vehicle's url column for the slug
-        $vehicleUrl = "{$baseUrl}/comprar-carro/{$vehicle->url}";
+        // Check if vehicle has url column
+        $vehicleSlug = $vehicle->url ?? $this->generateVehicleSlug($vehicle);
+        
+        $vehicleUrl = "{$baseUrl}/comprar-carro/{$vehicleSlug}";
+        
+        Log::debug('🚗 [Vehicle URLs] Adding vehicle', [
+            'vehicle_id' => $vehicle->id,
+            'slug' => $vehicleSlug,
+            'url' => $vehicleUrl
+        ]);
 
         $urls .= "  <url>\n";
         $urls .= "    <loc>{$vehicleUrl}</loc>\n";
@@ -758,8 +894,10 @@ private function generateVehicleUrls(TenantSitemapConfig $config): string
         $urls .= "  </url>\n";
     }
 
-    Log::info("urls" . $urls);
-
+    Log::info('🚗 [Vehicle URLs] Generated URLs', [
+        'total_urls' => $vehicles->count(),
+        'content_length' => strlen($urls)
+    ]);
 
     return $urls;
 }

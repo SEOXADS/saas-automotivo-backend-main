@@ -1045,3 +1045,26 @@ Route::get('/test-image/{tenantId}/{vehicleId}/{filename}', function($tenantId, 
 Route::get('/comprar/{brand}/{model}/{slug}', [PortalController::class, 'showVehicle'])
     ->name('vehicle.show.seo');
 
+
+
+    Route::get('/debug/sitemap/{tenantId}', function ($tenantId) {
+    // Check active configs
+    $configs = \App\Models\TenantSitemapConfig::forTenant($tenantId)->active()->get();
+    
+    // Check vehicles
+    $vehicles = \App\Models\Vehicle::where('tenant_id', $tenantId)
+        ->where('is_active', true)
+        ->count();
+    
+    // Check storage directory
+    $dirPath = "sitemaps/tenant_{$tenantId}";
+    $files = Storage::disk('public')->files($dirPath);
+    
+    return response()->json([
+        'tenant_id' => $tenantId,
+        'active_configs' => $configs,
+        'active_vehicles_count' => $vehicles,
+        'sitemap_files' => $files,
+        'storage_exists' => Storage::disk('public')->exists($dirPath)
+    ]);
+})->middleware('auth:sanctum');
