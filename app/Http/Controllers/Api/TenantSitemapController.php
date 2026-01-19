@@ -634,7 +634,8 @@ class TenantSitemapController extends Controller
         foreach ($configs as $config) {
             $xml .= "  <sitemap>\n";
             $xml .= "    <loc>{$config->url}</loc>\n";
-            $xml .= "    <lastmod>" . $config->updated_at->toISOString() . "</lastmod>\n";
+            $lastmod = $config->updated_at ? $config->updated_at->toISOString() : now()->toISOString();
+            $xml .= "    <lastmod>{$lastmod}</lastmod>\n";
             $xml .= "  </sitemap>\n";
         }
 
