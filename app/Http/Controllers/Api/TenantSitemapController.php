@@ -713,11 +713,17 @@ class TenantSitemapController extends Controller
         $tenantId = $config->tenant_id;
         $configData = $config->getConfigForType();
 
-        $vehicles = Vehicle::where('tenant_id', $tenantId)
+        /*$vehicles = Vehicle::where('tenant_id', $tenantId)
             ->where('is_active', true)
             ->limit($configData['max_vehicles'] ?? 1000)
             ->orderBy('updated_at', 'desc')
             ->get();
+        */
+        $vehicles = Vehicle::where('tenant_id', $tenantId)
+            ->where('is_active', true)
+            ->orderBy('updated_at', 'desc')
+            ->get();
+
 
         foreach ($vehicles as $vehicle) {
             $urls .= "  <url>\n";
@@ -760,7 +766,6 @@ class TenantSitemapController extends Controller
                 $query->where('tenant_id', $tenantId)->where('is_active', true);
             })
             ->where('is_active', true)
-            ->limit($configData['max_images'] ?? 500)
             ->orderBy('updated_at', 'desc')
             ->get();
 
