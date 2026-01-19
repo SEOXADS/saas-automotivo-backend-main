@@ -728,52 +728,38 @@ class TenantSitemapController extends Controller
  */
 private function generateVehicleUrls(TenantSitemapConfig $config): string
 {
+    Log::info("generateVehicleUrls");
     $urls = '';
     $tenantId = $config->tenant_id;
-    $configData = $config->getConfigForType();
-
-    // Get tenant to access custom_domain
     $tenant = \App\Models\Tenant::find($tenantId);
-    
-    // Use tenant's custom domain (frontend), NOT the API URL
-    $baseUrl = $tenant->custom_domain ?? "https://{$tenant->subdomain}.com.br";
-    $baseUrl = rtrim($baseUrl, '/'); // Remove trailing slash
+    Log::info("TENANT" . $tenant);
+
+    // Use the tenant's custom domain
+    $baseUrl = rtrim($tenant->custom_domain, '/');
+    Log::info("baseUrl" . $baseUrl);
 
     $vehicles = Vehicle::where('tenant_id', $tenantId)
         ->where('is_active', true)
         ->orderBy('updated_at', 'desc')
         ->get();
 
+    Log::info("vehicles" . $vehicles);
+
+
     foreach ($vehicles as $vehicle) {
-        // Use the vehicle's url column for the slug, or generate one
-        $vehicleSlug = $vehicle->url ?? $this->generateVehicleSlug($vehicle);
-        
-        // Build the full frontend URL
-        $vehicleUrl = "{$baseUrl}/comprar-carro/{$vehicleSlug}";
-        
+        // Use the vehicle's url column for the slug
+        $vehicleUrl = "{$baseUrl}/comprar-carro/{$vehicle->url}";
+
         $urls .= "  <url>\n";
         $urls .= "    <loc>{$vehicleUrl}</loc>\n";
         $urls .= "    <lastmod>" . $vehicle->updated_at->toISOString() . "</lastmod>\n";
-        $urls .= "    <changefreq>{$config->change_frequency}</changefreq>\n";
-        $urls .= "    <priority>{$config->priority}</priority>\n";
+        $urls .= "    <changefreq>daily</changefreq>\n";
+        $urls .= "    <priority>0.8</priority>\n";
         $urls .= "  </url>\n";
-
-        // Include images if configured (keep using API URL for images)
-        if ($configData['include_images'] ?? true) {
-            $images = VehicleImage::where('vehicle_id', $vehicle->id)->get();
-
-            foreach ($images as $image) {
-                $imageUrl = "https://api.omegaveiculos.com.br/api/public/images/{$tenantId}/{$vehicle->id}/{$image->filename}";
-                
-                $urls .= "  <url>\n";
-                $urls .= "    <loc>{$imageUrl}</loc>\n";
-                $urls .= "    <lastmod>" . $image->updated_at->toISOString() . "</lastmod>\n";
-                $urls .= "    <changefreq>monthly</changefreq>\n";
-                $urls .= "    <priority>0.3</priority>\n";
-                $urls .= "  </url>\n";
-            }
-        }
     }
+
+    Log::info("urls" . $urls);
+
 
     return $urls;
 }
